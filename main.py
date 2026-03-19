@@ -5,68 +5,77 @@ from datetime import datetime, timedelta
 import csv
 
 def get_exchange_rate():
-    """Отримує актуальний курс EUR/UAH від НБУ"""
     try:
-        url = "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?valcode=EUR&json"
-        res = requests.get(url)
+        res = requests.get("https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?valcode=EUR&json")
         return res.json()[0]['rate']
     except:
-        return 45.5  # Резервний курс
+        return 45.5
 
-def fetch_prices(date_target, api_key):
+def fetch_prices(target_date, api_key):
     url = "https://web-api.tp.entsoe.eu/api"
-    UA_DOMAIN = '10Y1001C--00003F'
+    # ОЕС України
+    UA_EIC = '10Y1001C--00003F'
     
-    start = date_target.replace(hour=0, minute=0, second=0, microsecond=0)
-    end = start + timedelta(days=1)
+    # Формуємо період на добу (24 години)
+    start_str = target_date.strftime('%Y%m%d0000')
+    end_str = (target_date + timedelta(days=1)).strftime('%Y%m%d0000')
     
     params = {
         'securityToken': api_key,
         'documentType': 'A44',
-        'in_Domain': UA_DOMAIN,
-        'out_Domain': UA_DOMAIN,
-        'periodStart': start.strftime('%Y%m%d%H%M'),
-        'periodEnd': end.strftime('%Y%m%d%H%M')
+        'processType': 'A01',
+        'in_Domain': UA_EIC,
+        'out_Domain': UA_EIC,
+        'periodStart': start_str,
+        'periodEnd': end_str
     }
     
-    response = requests.get(url, params=params)
-    if response.status_code == 200:
-        root = ET.fromstring(response.content)
-        ns = {'ns': 'urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:0'}
-        return root.findall('.//ns:Point', ns), start.date()
-    return None, None
-
-def save_to_csv(points, date_val):
-    if not points: return
-    
-    rate = get_exchange_rate()
-    file_exists = os.path.isfile('prices_history.csv')
-    
-    with open('prices_history.csv', mode='a', newline='') as file:
-        writer = csv.writer(file)
-        if not file_exists:
-            writer.writerow(['Date', 'Hour', 'Price_EUR_MWh', 'Price_UAH_MWh', 'Rate_NBU'])
+    print(f"Запит до ENTSO-E за дату: {target_date.date()}...")
+    try:
+        response = requests.get(url, params=params)
+        if response.status_code != 200:
+            print(f"API Error {response.status_code}: {response.text}")
+            return None
         
-        for point in points:
-            pos = point.find('{*}position').text
-            price_eur = float(point.find('{*}price.amount').text)
-            price_uah = round(price_eur * rate, 2)
-            hour = f"{int(pos)-1:02d}:00"
-            writer.writerow([date_val, hour, price_eur, price_uah, rate])
+        root = ET.fromstring(response.content)
+        # Використовуємо універсальний пошук тегів без жорсткої прив'язки до namespace
+        points = root.findall(".//{*}Point")
+        return points
+    except Exception as e:
+        print(f"Помилка запиту: {e}")
+        return None
 
 if __name__ == "__main__":
     token = os.getenv('ENTSOE_TOKEN')
     now = datetime.utcnow()
     
-    # Спочатку пробуємо на завтра
-    points, date_val = fetch_prices(now + timedelta(days=1), token)
+    # Спроба 1: На завтра
+    target = now + timedelta(days=1)
+    points = fetch_prices(target, token)
     
+    # Спроба 2: Якщо на завтра немає, беремо на сьогодні
     if not points:
-        print("На завтра даних ще немає, завантажуємо на сьогодні...")
-        points, date_val = fetch_prices(now, token)
+        print("На завтра порожньо, пробуємо на сьогодні...")
+        target = now
+        points = fetch_prices(target, token)
     
     if points:
-        save_to_csv(points, date_val)
-        print(f"Дані за {date_val} успішно збережені.")
+        rate = get_exchange_rate()
+        file_name = 'prices_history.csv'
+        file_exists = os.path.isfile(file_name)
+        
+        with open(file_name, mode='a', newline='') as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(['Date', 'Hour', 'Price_EUR', 'Price_UAH', 'Rate'])
+            
+            for p in points:
+                pos = p.find('{*}position').text
+                val = p.find('{*}price.amount').text
+                hour = f"{int(pos)-1:02d}:00"
+                p_uah = round(float(val) * rate, 2)
+                writer.writerow([target.date(), hour, val, p_uah, rate])
+        
+        print(f"Успішно! Додано {len(points)} записів за {target.date()}.")
     else:
-        print("Помилка: дані недоступні.")
+        print("Критична помилка: Дані не знайдено в обох спробах.")
