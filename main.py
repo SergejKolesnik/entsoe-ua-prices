@@ -3,32 +3,36 @@ import requests
 import csv
 from datetime import datetime, timedelta
 
-def get_oree_prices():
-    # Визначаємо дату на завтра (РДН)
+def get_market_operator_prices():
+    # Нам потрібні ціни на завтра (РДН)
     target_date = datetime.now() + timedelta(days=1)
     date_str = target_date.strftime('%d.%m.%Y')
     
-    # URL для отримання даних (JSON формат)
+    # Використовуємо офіційну адресу архіву результатів торгів
     url = f"https://www.oree.com.ua/index.php/PXS/get_data_main_page/{date_str}/1"
     
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'X-Requested-With': 'XMLHttpRequest'
+        'Referer': 'https://www.oree.com.ua/'
     }
 
-    print(f"Запит цін до 'Оператора ринку' на {date_str}...")
-    
+    print(f"Запит до oree.com.ua за {date_str}...")
+
     try:
         response = requests.get(url, headers=headers)
         if response.status_code != 200:
-            print(f"Помилка сайту: {response.status_code}")
-            return
+            # Якщо на завтра ще немає, беремо за сьогодні
+            print("На завтра ще не опубліковано, беремо сьогоднішні дані...")
+            target_date = datetime.now()
+            date_str = target_date.strftime('%d.%m.%Y')
+            url = f"https://www.oree.com.ua/index.php/PXS/get_data_main_page/{date_str}/1"
+            response = requests.get(url, headers=headers)
 
         data = response.json()
-        # Шукаємо дані РДН (ОЕС України)
-        # Зазвичай це структура з цінами по годинах
+        
+        # Структура Орее: BAU (ОЕС України), table (годинні ціни)
         if 'BAU' in data and 'table' in data['BAU']:
-            rows = data['BAU']['table']
+            prices_table = data['BAU']['table']
             
             file_name = 'prices_history.csv'
             file_exists = os.path.isfile(file_name)
@@ -38,17 +42,16 @@ def get_oree_prices():
                 if not file_exists:
                     writer.writerow(['Date', 'Hour', 'Price_UAH_MWh'])
                 
-                for row in rows:
-                    hour = row['Hour']
-                    price = row['Price'] # Ціна РДН
-                    writer.writerow([target_date.date(), f"{int(hour):02d}:00", price])
+                for row in prices_table:
+                    # 'Hour' та 'Price' — це ключі в їхньому JSON
+                    writer.writerow([target_date.date(), f"{int(row['Hour']):02d}:00", row['Price']])
             
-            print(f"УСПІХ! Дані за {target_date.date()} завантажені з oree.com.ua")
+            print(f"Успішно! {len(prices_table)} годин за {target_date.date()} додано в CSV.")
         else:
-            print("Дані на сайті oree.com.ua ще не оновлені. Спробуйте пізніше.")
-
+            print("Дані знайдені, але формат таблиці змінився або вона порожня.")
+            
     except Exception as e:
-        print(f"Помилка при отриманні даних з Орее: {e}")
+        print(f"Помилка: {e}")
 
 if __name__ == "__main__":
-    get_oree_prices()
+    get_market_operator_prices()
