@@ -2,12 +2,14 @@ name: ENTSO-E Daily Fetcher
 
 on:
   schedule:
-    - cron: '0 11 * * *' # Запуск щодня об 11:00 UTC (13:00 або 14:00 за Києвом)
-  workflow_dispatch:      # Кнопка для ручного запуску
+    - cron: '0 11 * * *'
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Важливо: дозвіл на запис файлів
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -24,3 +26,11 @@ jobs:
         env:
           ENTSOE_TOKEN: ${{ secrets.ENTSOE_TOKEN }}
         run: python main.py
+
+      - name: Commit and Push CSV
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git add prices_history.csv
+          git commit -m "Update prices history [skip ci]" || exit 0
+          git push
