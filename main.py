@@ -2,13 +2,12 @@ import os
 import requests
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
+import csv
 
 def get_ua_prices():
-    # Отримуємо токен із секретів GitHub
     api_key = os.getenv('ENTSOE_TOKEN')
     url = "https://web-api.tp.entsoe.eu/api"
     
-    # Визначаємо час: сьогодні
     start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=1)
     
@@ -24,17 +23,25 @@ def get_ua_prices():
     try:
         response = requests.get(url, params=params)
         if response.status_code == 200:
-            print(f"--- Ціни РДН на {start.date()} ---")
             root = ET.fromstring(response.content)
             ns = {'ns': 'urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:0'}
             
-            for point in root.findall('.//ns:Point', ns):
-                pos = point.find('ns:position', ns).text
-                price = point.find('ns:price.amount', ns).text
-                print(f"Година {int(pos)-1:02d}:00 | Ціна: {price} EUR")
+            # Створюємо або дописуємо у CSV
+            file_exists = os.path.isfile('prices_history.csv')
+            with open('prices_history.csv', mode='a', newline='') as file:
+                writer = csv.writer(file)
+                if not file_exists:
+                    writer.writerow(['Date', 'Hour', 'Price_EUR_MWh']) # Заголовки
+                
+                for point in root.findall('.//ns:Point', ns):
+                    pos = point.find('ns:position', ns).text
+                    price = point.find('ns:price.amount', ns).text
+                    hour = f"{int(pos)-1:02d}:00"
+                    writer.writerow([start.date(), hour, price])
+            
+            print(f"Дані за {start.date()} успішно збережено в CSV.")
         else:
             print(f"Помилка API: {response.status_code}")
-            print(response.text)
     except Exception as e:
         print(f"Помилка: {e}")
 
