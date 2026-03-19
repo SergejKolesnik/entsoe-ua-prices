@@ -1,51 +1,34 @@
 import os
 import requests
-import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta
 import csv
+from datetime import datetime, timedelta
 
-def fetch_data(api_key, target_date):
-    url = "https://web-api.tp.entsoe.eu/api"
-    # ОЕС України
-    UA_EIC = '10Y1001C--00003F'
+def get_oree_prices():
+    # Визначаємо дату на завтра (РДН)
+    target_date = datetime.now() + timedelta(days=1)
+    date_str = target_date.strftime('%d.%m.%Y')
     
-    # Спробуємо максимально широкий запит
-    params = {
-        'securityToken': api_key,
-        'documentType': 'A44',
-        'in_Domain': UA_EIC,
-        'out_Domain': UA_EIC,
-        'periodStart': target_date.strftime('%Y%m%d0000'),
-        'periodEnd': (target_date + timedelta(days=1)).strftime('%Y%m%d0000')
+    # URL для отримання даних (JSON формат)
+    url = f"https://www.oree.com.ua/index.php/PXS/get_data_main_page/{date_str}/1"
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'X-Requested-With': 'XMLHttpRequest'
     }
-    
-    print(f"--- Запит за {target_date.date()} ---")
-    r = requests.get(url, params=params)
-    
-    if r.status_code != 200:
-        print(f"Помилка сервера: {r.status_code}")
-        return None
 
-    # Якщо даних нібито немає, виведемо частину відповіді для аналізу
-    if '<Point>' not in r.text:
-        print("Сервер повернув відповідь, але точок (цін) у ній немає.")
-        # Виводимо початок XML, щоб зрозуміти причину (наприклад, No matching data found)
-        print(f"Фрагмент відповіді: {r.text[:300]}")
-        return None
+    print(f"Запит цін до 'Оператора ринку' на {date_str}...")
     
-    return ET.fromstring(r.content)
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200:
+            print(f"Помилка сайту: {response.status_code}")
+            return
 
-if __name__ == "__main__":
-    token = os.getenv('ENTSOE_TOKEN')
-    now = datetime.utcnow()
-    
-    # Перевіряємо завтра, потім сьогодні
-    for day in [now + timedelta(days=1), now]:
-        root = fetch_data(token, day)
-        if root:
-            points = root.findall(".//{*}Point")
-            currency = root.find(".//{*}currency_Unit.name")
-            curr_name = currency.text if currency is not None else "UAH"
+        data = response.json()
+        # Шукаємо дані РДН (ОЕС України)
+        # Зазвичай це структура з цінами по годинах
+        if 'BAU' in data and 'table' in data['BAU']:
+            rows = data['BAU']['table']
             
             file_name = 'prices_history.csv'
             file_exists = os.path.isfile(file_name)
@@ -53,15 +36,19 @@ if __name__ == "__main__":
             with open(file_name, 'a', newline='') as f:
                 writer = csv.writer(f)
                 if not file_exists:
-                    writer.writerow(['Date', 'Hour', 'Price', 'Currency'])
+                    writer.writerow(['Date', 'Hour', 'Price_UAH_MWh'])
                 
-                for p in points:
-                    pos = p.find('{*}position').text
-                    val = p.find('{*}price.amount').text
-                    writer.writerow([day.date(), f"{int(pos)-1:02d}:00", val, curr_name])
+                for row in rows:
+                    hour = row['Hour']
+                    price = row['Price'] # Ціна РДН
+                    writer.writerow([target_date.date(), f"{int(hour):02d}:00", price])
             
-            print(f"УСПІХ! Дані за {day.date()} збережено.")
-            break
-    else:
-        print("На жаль, API ENTSO-E для України зараз не віддає ціни через автоматичний запит.")
-        print("Це може бути пов'язано з технічним статусом 'WITHOUT SEQUENCE' на сайті.")
+            print(f"УСПІХ! Дані за {target_date.date()} завантажені з oree.com.ua")
+        else:
+            print("Дані на сайті oree.com.ua ще не оновлені. Спробуйте пізніше.")
+
+    except Exception as e:
+        print(f"Помилка при отриманні даних з Орее: {e}")
+
+if __name__ == "__main__":
+    get_oree_prices()
