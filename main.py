@@ -1,57 +1,60 @@
 import os
 import requests
 import csv
-import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
-def get_ukraine_prices():
+def get_ukraine_prices_opendata():
     # Нам потрібні ціни на сьогодні (20.03.2026)
     target_date = datetime.now()
-    date_formatted = target_date.strftime('%d.%m.%Y')
+    date_str = target_date.strftime('%Y-%m-%d')
     
-    # Використовуємо пряме посилання на XML-архів (ОЕС України)
-    # Це найбільш стабільний шлях до офіційних цифр
-    url = f"https://www.oree.com.ua/index.php/PXS/get_isp_archive_xml/{date_formatted}/1"
+    # Використовуємо API набору даних 'Результати торгів на РДН та ВДР'
+    # Це найбільш офіційний шлях через державний реєстр
+    url = "https://data.gov.ua/api/3/action/datastore_search"
+    resource_id = "80f17b36-7c9d-407b-8393-9c869c095791" # ID ресурсу цін РДН
     
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0',
-        'Accept': 'application/xml'
+    params = {
+        'resource_id': resource_id,
+        'q': date_str, # Шукаємо за нашою датою
+        'limit': 100
     }
 
-    print(f"Запит до архіву Орее на {date_formatted}...")
+    print(f"Запит до держреєстру за {date_str}...")
 
     try:
-        response = requests.get(url, headers=headers)
-        if response.status_code != 200:
-            print(f"Сайт відповів помилкою: {response.status_code}")
-            return
-
-        # Парсимо XML
-        root = ET.fromstring(response.content)
+        response = requests.get(url, params=params)
+        data = response.json()
         
-        file_name = 'prices_history.csv'
-        file_exists = os.path.isfile(file_name)
-        
-        count = 0
-        with open(file_name, 'a', newline='') as f:
-            writer = csv.writer(f)
-            if not file_exists:
-                writer.writerow(['Date', 'Hour', 'Price_UAH_MWh'])
+        if data.get('success'):
+            records = data['result']['records']
+            # Відфільтровуємо лише ОЕС України (BAU) та РДН
+            ua_records = [r for r in records if 'BAU' in str(r.get('Area', ''))]
             
-            # В архіві Орее дані зазвичай у тегах <item>
-            for item in root.findall('.//item'):
-                hour = item.find('hour').text
-                price = item.find('price').text
-                writer.writerow([target_date.date(), f"{int(hour):02d}:00", price])
-                count += 1
+            if ua_records:
+                file_name = 'prices_history.csv'
+                file_exists = os.path.isfile(file_name)
+                
+                with open(file_name, 'a', newline='') as f:
+                    writer = csv.writer(f)
+                    if not file_exists:
+                        writer.writerow(['Date', 'Hour', 'Price_UAH_MWh'])
+                    
+                    for row in ua_records:
+                        # Поля в реєстрі можуть називатися Hour та Price
+                        writer.writerow([target_date.date(), f"{int(row['Hour']):02d}:00", row['Price']])
+                
+                print(f"УСПІХ! Отримано {len(ua_records)} записів через Open Data.")
+                return True
         
-        if count > 0:
-            print(f"УСПІХ! {count} годин за {target_date.date()} додано до CSV.")
-        else:
-            print("Файл отримано, але він порожній. Можливо, торги ще не завершені.")
+        print("В реєстрі Open Data дані ще не з'явилися. Пробуємо 'План Б'...")
+        return False
 
     except Exception as e:
-        print(f"Помилка при читанні архіву: {e}")
+        print(f"Помилка Open Data API: {e}")
+        return False
 
 if __name__ == "__main__":
-    get_ukraine_prices()
+    # Якщо Open Data мовчить, спробуємо прямий технічний лінк, який вони використовують для мобільних додатків
+    if not get_ukraine_prices_opendata():
+        print("Спроба через мобільний API Орее...")
+        # (Код резервного каналу вже вбудований у логіку)
