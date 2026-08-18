@@ -8,7 +8,7 @@ Build an independent decision-support system for Ukrainian day-ahead market data
 
 ## Current phase
 
-Phase 1: market data foundation. No production forecast, Streamlit UI, Supabase integration, or Solar Monitoring System integration exists yet.
+Phase 2: durable local ingestion. No production forecast, Streamlit UI, Supabase integration, or Solar Monitoring System integration exists yet.
 
 ## Architecture decisions
 
@@ -20,6 +20,9 @@ Phase 1: market data foundation. No production forecast, Streamlit UI, Supabase 
 - The old prototype is preserved by Git history and the `prototype-v0` tag.
 - The research PDF in `docs/references/` is retained as a theoretical reference. Its reported monthly statistics are not considered reproduced until the underlying dataset and analysis code are available.
 - Effective-dated price-cap regimes and forecast feature `available_at` timestamps are mandatory parts of the future data model.
+- Raw source artifacts are immutable, content-addressed files; SQLite stores their provenance and normalized price rows.
+- Normalized rows use a source/market/zone/delivery-start uniqueness contract so retries are idempotent.
+- Market Operator XLSX files are landed but not normalized until their real schema is captured in sanitized fixtures.
 
 ## Security note
 
@@ -28,7 +31,7 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
 ## Next priorities
 
 1. Complete Market Operator hourly Excel parsing with real sanitized fixtures.
-2. Add raw artifact checksums and filesystem landing storage.
-3. Design and review Supabase migrations, including market price caps and feature publication timestamps.
-4. Perform controlled historical backfill and data-quality reporting.
+2. Add controlled date-range backfill and data-quality reporting.
+3. Add cross-source comparison without silently selecting a winner.
+4. Design and review optional PostgreSQL/Supabase migrations, including market price caps and feature publication timestamps.
 5. Only then implement the naive comparable-day baseline and walk-forward backtesting.

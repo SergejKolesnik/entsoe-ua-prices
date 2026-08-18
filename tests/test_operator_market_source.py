@@ -1,8 +1,13 @@
 import unittest
-from datetime import date
+from datetime import date, datetime, timezone
 from unittest.mock import Mock
 
-from market_forecast.sources.operator_market import OperatorMarketSource, RESULTS_URL
+from market_forecast.domain import SourceObservation
+from market_forecast.sources.operator_market import (
+    DOWNLOAD_BASE_URL,
+    OperatorMarketSource,
+    RESULTS_URL,
+)
 
 
 class FakeResponse:
@@ -69,6 +74,29 @@ class OperatorMarketSourceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "empty"):
             OperatorMarketSource(session=session).discover(date(2026, 8, 19))
+
+    def test_downloads_only_validated_operator_url(self):
+        session = Mock()
+        response = Mock(
+            content=b"PK\x03\x04xlsx-bytes",
+            status_code=200,
+            headers={"Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+        )
+        session.get.return_value = response
+        source = OperatorMarketSource(session=session)
+        observation = SourceObservation(
+            source="operator_market",
+            delivery_date=date(2026, 8, 19),
+            artifact_url=f"{DOWNLOAD_BASE_URL}/19.08.2026/DAM/result.xlsx",
+            discovered_at=datetime.now(timezone.utc),
+            source_reference="19.08.2026/DAM/result.xlsx",
+        )
+
+        raw = source.download(observation)
+
+        self.assertEqual(raw.content, b"PK\x03\x04xlsx-bytes")
+        session.get.assert_called_once_with(observation.artifact_url, timeout=30.0)
+        response.raise_for_status.assert_called_once()
 
 
 if __name__ == "__main__":

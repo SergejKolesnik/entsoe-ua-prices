@@ -9,6 +9,7 @@ from urllib.parse import quote
 import requests
 
 from market_forecast.domain import SourceObservation
+from market_forecast.sources.base import RawResponse
 
 
 RESULTS_URL = "https://www.oree.com.ua/index.php/PXS/get_pxs_res"
@@ -82,3 +83,27 @@ class OperatorMarketSource:
             discovered_at=datetime.now(timezone.utc),
             source_reference=reference,
         )
+
+    def download(self, observation: SourceObservation) -> RawResponse:
+        """Download a previously validated Market Operator artifact."""
+
+        if observation.source != self.source_name:
+            raise ValueError("Observation does not belong to Market Operator")
+        if not observation.artifact_url.startswith(f"{DOWNLOAD_BASE_URL}/"):
+            raise ValueError("Unexpected Market Operator artifact URL")
+
+        response = self.session.get(
+            observation.artifact_url,
+            timeout=self.timeout_seconds,
+        )
+        response.raise_for_status()
+        raw = RawResponse(
+            content=response.content,
+            content_type=response.headers.get("Content-Type", ""),
+            status_code=response.status_code,
+            source_url=observation.artifact_url,
+        )
+        raw.require_content()
+        if not raw.content.startswith(b"PK\x03\x04"):
+            raise ValueError("Market Operator artifact is not a valid XLSX container")
+        return raw
