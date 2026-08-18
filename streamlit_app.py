@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -18,6 +19,7 @@ if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
 from market_forecast.config import Settings  # noqa: E402
+from market_forecast.forecasting import build_day_forecast, walk_forward_backtest  # noqa: E402
 from market_forecast.persistence import SQLiteMarketRepository  # noqa: E402
 from market_forecast.services import build_quality_report  # noqa: E402
 
@@ -279,6 +281,122 @@ def _draw_quality(database_path: Path, date_from: date, date_to: date) -> None:
     )
 
 
+def _draw_forecast(frame: pd.DataFrame, latest_date: date) -> None:
+    rows = [
+        (
+            item.delivery_start_utc.to_pydatetime()
+            if hasattr(item.delivery_start_utc, "to_pydatetime")
+            else item.delivery_start_utc,
+            Decimal(str(item.price)),
+        )
+        for item in frame.itertuples()
+    ]
+    try:
+        comparison = walk_forward_backtest(rows)
+    except ValueError as exc:
+        st.info(f"Прогноз ще не активований: {exc}")
+        return
+    champion = comparison.champion_method
+    metrics = (
+        comparison.comparable_day
+        if champion == "comparable_day"
+        else comparison.previous_day
+    )
+    target_date = latest_date + timedelta(days=1)
+    forecast = build_day_forecast(rows, target_date, champion)
+    if not forecast:
+        st.warning("Не вдалося сформувати повний погодинний прогноз.")
+        return
+
+    method_label = {
+        "comparable_day": "Медіана порівнянних днів",
+        "previous_day": "Попередня доба",
+    }
+    columns = st.columns(4)
+    columns[0].metric("Прогноз на", target_date.strftime("%d.%m.%Y"))
+    columns[1].metric("Обрана модель", method_label[champion])
+    columns[2].metric("Backtest MAE", f"{float(metrics.mae):,.0f} грн/МВт·год")
+    columns[3].metric("Контрольна вибірка", f"{metrics.evaluated_days} днів")
+
+    starts = [item.delivery_start_utc.astimezone(KYIV) for item in forecast]
+    values = [float(item.predicted_price) for item in forecast]
+    interval = float(metrics.absolute_error_p80)
+    lower = [max(0.0, value - interval) for value in values]
+    upper = [value + interval for value in values]
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=starts,
+            y=upper,
+            mode="lines",
+            line=dict(width=0),
+            showlegend=False,
+            hoverinfo="skip",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=starts,
+            y=lower,
+            mode="lines",
+            line=dict(width=0),
+            fill="tonexty",
+            fillcolor="rgba(55,138,221,.18)",
+            name=f"Коридор ±{interval:,.0f} (P80 помилки)",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=starts,
+            y=values,
+            mode="lines+markers",
+            line=dict(color=AMBER, width=3),
+            marker=dict(size=6),
+            name="Наступна невідома доба",
+        )
+    )
+    fig.update_layout(**_chart_layout(420, "грн/МВт·год"))
+    fig.update_xaxes(title="Година постачання", dtick=2 * 60 * 60 * 1000)
+    st.plotly_chart(fig, width="stretch")
+
+    comparison_table = pd.DataFrame(
+        {
+            "Модель": ["Порівнянні дні", "Попередня доба"],
+            "MAE": [
+                float(comparison.comparable_day.mae),
+                float(comparison.previous_day.mae),
+            ],
+            "RMSE": [
+                float(comparison.comparable_day.rmse),
+                float(comparison.previous_day.rmse),
+            ],
+            "Годин у backtest": [
+                comparison.comparable_day.observations,
+                comparison.previous_day.observations,
+            ],
+            "Статус": [
+                "Обрана" if champion == "comparable_day" else "Гірша",
+                "Обрана" if champion == "previous_day" else "Гірша",
+            ],
+        }
+    )
+    st.dataframe(
+        comparison_table,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "MAE": st.column_config.NumberColumn(format="%.0f грн/МВт·год"),
+            "RMSE": st.column_config.NumberColumn(format="%.0f грн/МВт·год"),
+        },
+    )
+    st.caption(
+        "Це прозорий історичний baseline, а не фінальна виробнича модель. "
+        "Дата прогнозу — перша доба після останніх уже опублікованих цін РДН. "
+        "Коридор показує 80-й перцентиль абсолютної помилки backtest і не є "
+        "гарантованим довірчим інтервалом."
+    )
+
+
 def main() -> None:
     st.set_page_config(page_title="RDN Market Intelligence", page_icon="⚡", layout="wide")
     _inject_styles()
@@ -338,13 +456,8 @@ def main() -> None:
     with quality:
         _draw_quality(settings.database_path, date_from, date_to)
     with forecast:
-        st.info(
-            "Модель прогнозування ще не активована. Спочатку система накопичує "
-            "та перевіряє історичні дані; тут не показуються вигадані прогнозні значення."
-        )
-        st.markdown(
-            "Наступний крок: baseline D+1, walk-forward backtest і довірчий інтервал."
-        )
+        forecast_history = _load_prices(str(settings.database_path), earliest, latest)
+        _draw_forecast(forecast_history, latest)
 
 
 if __name__ == "__main__":

@@ -75,7 +75,9 @@ python -m market_forecast.cli backfill --source operator --from 2026-07-19 --to 
 python -m streamlit run streamlit_app.py
 ```
 
-Streamlit prints the local browser address, normally `http://localhost:8501`. The dashboard reads `data/market_forecast.sqlite3` and does not contact or modify SkyGrid Solar. Its **Прогноз** tab deliberately shows the model as unavailable until a chronological backtest establishes a trustworthy baseline; the application never labels invented values as a forecast.
+Streamlit prints the local browser address, normally `http://localhost:8501`. The dashboard reads `data/market_forecast.sqlite3` and does not contact or modify SkyGrid Solar. Its **Прогноз** tab shows a transparent one-step baseline for the first delivery day after the latest published DAM prices.
+
+The baseline is selected only by chronological walk-forward results. It compares the median of up to four prior matching weekdays against the previous-day hourly profile, uses no observation from or after a historical forecast cutoff, and displays the lower-MAE method. The uncertainty band is the 80th percentile of historical absolute errors, not a guaranteed confidence interval. This is an auditable research baseline rather than a claim of production-grade accuracy.
 
 ## Automatic daily refresh
 

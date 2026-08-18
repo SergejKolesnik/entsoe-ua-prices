@@ -8,7 +8,7 @@ Build an independent decision-support system for Ukrainian day-ahead market data
 
 ## Current phase
 
-Phase 3: local analytics dashboard. Durable ingestion and a read-only Streamlit UI exist; no production forecast, Supabase integration, or Solar Monitoring System integration exists yet.
+Phase 4: transparent forecasting baseline. Durable ingestion, automated refresh, analytics UI, and leakage-safe walk-forward evaluation exist; no production-grade forecast, Supabase integration, or Solar Monitoring System integration exists yet.
 
 ## Architecture decisions
 
@@ -28,7 +28,8 @@ Phase 3: local analytics dashboard. Durable ingestion and a read-only Streamlit 
 - Quality reporting compares each Kyiv delivery date against its expected 23/24/25 hourly periods and returns non-zero for incomplete coverage.
 - ENTSO-E HTTP errors are sanitized before logging so request URLs cannot expose the security token.
 - The Streamlit dashboard reads the same SQLite repository and is presentation-only: it does not collect data or mutate the database.
-- Forecast UI is explicitly unavailable until a baseline and walk-forward evaluation are implemented; historical curves must not be presented as predictions.
+- The forecast tab compares a same-weekday median against previous-day persistence on identical chronological cutoffs and displays only the lower-MAE baseline.
+- Forecast timestamps always start after the latest published DAM delivery day. The P80 absolute-error band is an empirical diagnostic, not a guaranteed confidence interval.
 - Page views never trigger source requests. `refresh_operator.py` is the scheduler-safe one-shot entry point and defaults to tomorrow in the Kyiv calendar.
 - Windows Task Scheduler runs the refresh at 14:15, 15:00, 16:00, and 17:00 local time; retries remain idempotent and missed runs start when the computer becomes available.
 - Every automatic attempt is stored as `collected`, `unpublished`, or `failed`; the dashboard exposes freshness without storing raw exception text that could contain sensitive URLs.
@@ -39,8 +40,8 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
 
 ## Next priorities
 
-1. Implement the naive comparable-day baseline and chronological walk-forward backtesting.
+1. Accumulate a wider history and monitor baseline stability by rolling evaluation window.
 2. Add cross-source comparison without silently selecting a winner.
-3. Add regression fixtures for documented 23/25-period operator days when available.
-4. Design and review optional PostgreSQL/Supabase migrations, including market price caps and feature publication timestamps.
-5. Activate forecast charts only after their out-of-sample metrics and limitations are visible in the dashboard.
+3. Add effective-dated price caps and calendar features before testing any ML candidate.
+4. Add regression fixtures for documented 23/25-period operator days when available.
+5. Design and review optional PostgreSQL/Supabase migrations, including feature publication timestamps.
