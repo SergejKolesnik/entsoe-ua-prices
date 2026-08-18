@@ -13,7 +13,7 @@ The project is intentionally separate from SkyGrid Solar. It currently provides 
 - Reject duplicate, missing, overlapping, naive, or inconsistent hourly observations.
 - Test 23-, 24-, and 25-period trading days without inventing missing values.
 - Store immutable raw responses by SHA-256 and normalized prices idempotently in SQLite.
-- Land official Market Operator workbooks without guessing their column layout.
+- Parse official Market Operator legacy XLS workbooks using their verified hourly layout.
 
 ## Setup
 
@@ -51,7 +51,9 @@ python -m market_forecast.cli collect --source operator --date 2026-08-18
 python -m market_forecast.cli collect --source entsoe --date 2026-08-18 --bidding-zone <EIC_CODE>
 ```
 
-The ENTSO-E bidding-zone EIC is intentionally explicit; the application does not guess a market area. Repeating the same collection does not duplicate normalized price rows or raw files.
+The ENTSO-E bidding-zone EIC is intentionally explicit; the application does not guess a market area. Repeating a collection does not duplicate normalized price rows, and byte-identical raw responses share one content-addressed file.
+
+Despite the `downloadxlsx` endpoint name, the Market Operator currently returns a legacy OLE `.xls` file. The parser uses tolerant workbook loading because the generated container has a malformed sector chain, then validates the real hourly row count and localized price values before persistence.
 
 ## Data-source responsibilities
 

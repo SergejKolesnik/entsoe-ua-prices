@@ -104,6 +104,6 @@ class OperatorMarketSource:
             source_url=observation.artifact_url,
         )
         raw.require_content()
-        if not raw.content.startswith(b"PK\x03\x04"):
-            raise ValueError("Market Operator artifact is not a valid XLSX container")
+        if not raw.content.startswith((b"PK\x03\x04", b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")):
+            raise ValueError("Market Operator artifact is not a recognized Excel container")
         return raw

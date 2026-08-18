@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from market_forecast.parsers import parse_price_document
+from market_forecast.parsers import parse_operator_market_workbook, parse_price_document
 from market_forecast.persistence import RawArtifactStore, SQLiteMarketRepository
 from market_forecast.sources import EntsoeSource, OperatorMarketSource
 from market_forecast.validation import validate_delivery_periods
@@ -75,16 +75,23 @@ class MarketCollectionService:
         if observation is None:
             return None
         raw = source.download(observation)
-        artifact = self.artifact_store.save(raw.content, "operator_market", delivery_date, "xlsx")
+        extension = "xlsx" if raw.content.startswith(b"PK\x03\x04") else "xls"
+        artifact = self.artifact_store.save(
+            raw.content, "operator_market", delivery_date, extension
+        )
+        records = parse_operator_market_workbook(raw.content, delivery_date)
+        validate_delivery_periods(records, expected_periods=len(records))
         self.repository.initialize()
-        self.repository.store_collection(
+        _, inserted = self.repository.store_collection(
             artifact=artifact,
             source="operator_market",
             delivery_date=delivery_date,
             source_url=raw.source_url,
             content_type=raw.content_type,
             fetched_at_utc=datetime.now(timezone.utc),
-            prices=[],
-            validation_status="raw_only",
+            prices=records,
+            validation_status="validated",
         )
-        return CollectionResult("operator_market", delivery_date, artifact.sha256, 0, 0)
+        return CollectionResult(
+            "operator_market", delivery_date, artifact.sha256, len(records), inserted
+        )

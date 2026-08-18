@@ -83,6 +83,34 @@ class PersistenceTests(unittest.TestCase):
                 stored = connection.execute("SELECT price FROM market_prices").fetchone()
             self.assertEqual(stored[0], "5000.10")
 
+    def test_repository_accepts_same_prices_from_new_raw_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = SQLiteMarketRepository(root / "market.sqlite3")
+            repository.initialize()
+            store = RawArtifactStore(root / "raw")
+            common = dict(
+                source="entsoe",
+                delivery_date=date(2026, 8, 18),
+                source_url="https://example.test/api",
+                content_type="application/xml",
+                fetched_at_utc=datetime(2026, 8, 17, 12, tzinfo=timezone.utc),
+                prices=[make_price()],
+                validation_status="validated",
+            )
+            repository.store_collection(
+                artifact=store.save(b"revision-one", "entsoe", date(2026, 8, 18), "xml"),
+                **common,
+            )
+
+            _, inserted = repository.store_collection(
+                artifact=store.save(b"revision-two", "entsoe", date(2026, 8, 18), "xml"),
+                **common,
+            )
+
+            self.assertEqual(inserted, 0)
+            self.assertEqual(repository.count_prices(), 1)
+
     def test_repository_rejects_naive_fetch_timestamp(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

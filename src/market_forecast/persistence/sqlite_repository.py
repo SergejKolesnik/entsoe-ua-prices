@@ -85,7 +85,12 @@ class SQLiteMarketRepository:
                     sha256, source, delivery_date, source_url, content_type,
                     local_path, byte_count, fetched_at_utc, validation_status
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(source, delivery_date, sha256) DO NOTHING
+                ON CONFLICT(source, delivery_date, sha256) DO UPDATE SET
+                    validation_status = CASE
+                        WHEN raw_artifacts.validation_status = 'validated'
+                        THEN raw_artifacts.validation_status
+                        ELSE excluded.validation_status
+                    END
                 """,
                 (
                     artifact.sha256,
@@ -139,7 +144,7 @@ class SQLiteMarketRepository:
                 if cursor.rowcount == 0:
                     existing = connection.execute(
                         """SELECT delivery_end_utc, settlement_period, price, currency,
-                                  volume_mwh, source_revision, raw_artifact_id
+                                  volume_mwh, source_revision
                            FROM market_prices
                            WHERE source = ? AND market = ? AND bidding_zone = ?
                              AND delivery_start_utc = ?""",
@@ -157,7 +162,6 @@ class SQLiteMarketRepository:
                         item.currency,
                         str(item.volume_mwh) if item.volume_mwh is not None else None,
                         item.source_revision,
-                        artifact_id,
                     )
                     if existing != expected:
                         raise ValueError(

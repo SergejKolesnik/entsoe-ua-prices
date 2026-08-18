@@ -98,6 +98,26 @@ class OperatorMarketSourceTests(unittest.TestCase):
         session.get.assert_called_once_with(observation.artifact_url, timeout=30.0)
         response.raise_for_status.assert_called_once()
 
+    def test_accepts_legacy_xls_container(self):
+        session = Mock()
+        response = Mock(
+            content=b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1legacy-xls",
+            status_code=200,
+            headers={"Content-Type": "application/vnd.ms-excel"},
+        )
+        session.get.return_value = response
+        observation = SourceObservation(
+            source="operator_market",
+            delivery_date=date(2026, 8, 19),
+            artifact_url=f"{DOWNLOAD_BASE_URL}/19.08.2026/DAM/2",
+            discovered_at=datetime.now(timezone.utc),
+            source_reference="19.08.2026/DAM/2",
+        )
+
+        raw = OperatorMarketSource(session=session).download(observation)
+
+        self.assertEqual(raw.content_type, "application/vnd.ms-excel")
+
 
 if __name__ == "__main__":
     unittest.main()

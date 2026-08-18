@@ -22,7 +22,8 @@ Phase 2: durable local ingestion. No production forecast, Streamlit UI, Supabase
 - Effective-dated price-cap regimes and forecast feature `available_at` timestamps are mandatory parts of the future data model.
 - Raw source artifacts are immutable, content-addressed files; SQLite stores their provenance and normalized price rows.
 - Normalized rows use a source/market/zone/delivery-start uniqueness contract so retries are idempotent.
-- Market Operator XLSX files are landed but not normalized until their real schema is captured in sanitized fixtures.
+- Market Operator results are legacy XLS files despite the endpoint name. The verified layout has one worksheet, one header row, and hourly rows with the DAM price in column 2.
+- The operator-generated OLE sector chain is malformed; tolerant loading is allowed only before strict row-count and numeric validation.
 
 ## Security note
 
@@ -30,8 +31,8 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
 
 ## Next priorities
 
-1. Complete Market Operator hourly Excel parsing with real sanitized fixtures.
-2. Add controlled date-range backfill and data-quality reporting.
-3. Add cross-source comparison without silently selecting a winner.
+1. Add controlled date-range backfill and data-quality reporting.
+2. Add cross-source comparison without silently selecting a winner.
+3. Add regression fixtures for documented 23/25-period operator days when available.
 4. Design and review optional PostgreSQL/Supabase migrations, including market price caps and feature publication timestamps.
 5. Only then implement the naive comparable-day baseline and walk-forward backtesting.
