@@ -131,6 +131,31 @@ class PersistenceTests(unittest.TestCase):
                     validation_status="raw_only",
                 )
 
+    def test_available_period_returns_stored_delivery_bounds(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = SQLiteMarketRepository(root / "market.sqlite3")
+            repository.initialize()
+            artifact = RawArtifactStore(root / "raw").save(
+                b"document", "entsoe", date(2026, 8, 18), "xml"
+            )
+            repository.store_collection(
+                artifact=artifact,
+                source="entsoe",
+                delivery_date=date(2026, 8, 18),
+                source_url="https://example.test/api",
+                content_type="application/xml",
+                fetched_at_utc=datetime(2026, 8, 17, 12, tzinfo=timezone.utc),
+                prices=[make_price()],
+                validation_status="validated",
+            )
+
+            bounds = repository.available_period("entsoe")
+
+            self.assertEqual(bounds[0], make_price().delivery_start_utc)
+            self.assertEqual(bounds[1], make_price().delivery_start_utc)
+            self.assertIsNone(repository.available_period("operator_market"))
+
 
 if __name__ == "__main__":
     unittest.main()

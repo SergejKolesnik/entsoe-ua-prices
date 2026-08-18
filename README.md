@@ -2,7 +2,7 @@
 
 Independent Python foundation for collecting and validating Ukrainian day-ahead electricity-market data.
 
-The project is intentionally separate from SkyGrid Solar. It currently provides source adapters, normalized domain models, raw artifact landing, SQLite persistence, ENTSO-E XML parsing, and settlement-period validation. Forecasting and UI are not implemented yet.
+The project is intentionally separate from SkyGrid Solar. It provides source adapters, normalized domain models, raw artifact landing, SQLite persistence, settlement-period validation, and an independent Streamlit dashboard. Forecasting is not activated yet.
 
 ## Current capabilities
 
@@ -14,6 +14,7 @@ The project is intentionally separate from SkyGrid Solar. It currently provides 
 - Test 23-, 24-, and 25-period trading days without inventing missing values.
 - Store immutable raw responses by SHA-256 and normalized prices idempotently in SQLite.
 - Parse official Market Operator legacy XLS workbooks using their verified hourly layout.
+- Explore stored prices in a dark Streamlit dashboard with daily metrics, hourly profiles, history, a calendar heatmap, and data-quality reporting.
 
 ## Setup
 
@@ -64,6 +65,17 @@ python -m market_forecast.cli quality --source operator --from 2026-08-01 --to 2
 ```
 
 Backfill is sequential, waits 0.5 seconds between requests by default, records each day as `collected`, `unpublished`, or `failed`, and refuses ranges above 366 days unless the safety limit is explicitly changed. Quality reporting exits non-zero when any requested delivery day is incomplete.
+
+## Dashboard
+
+Collect a historical range first, then start the local application:
+
+```powershell
+python -m market_forecast.cli backfill --source operator --from 2026-07-19 --to 2026-08-18
+python -m streamlit run streamlit_app.py
+```
+
+Streamlit prints the local browser address, normally `http://localhost:8501`. The dashboard reads `data/market_forecast.sqlite3` and does not contact or modify SkyGrid Solar. Its **Прогноз** tab deliberately shows the model as unavailable until a chronological backtest establishes a trustworthy baseline; the application never labels invented values as a forecast.
 
 ## Data-source responsibilities
 

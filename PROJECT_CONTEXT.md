@@ -8,7 +8,7 @@ Build an independent decision-support system for Ukrainian day-ahead market data
 
 ## Current phase
 
-Phase 2: durable local ingestion. No production forecast, Streamlit UI, Supabase integration, or Solar Monitoring System integration exists yet.
+Phase 3: local analytics dashboard. Durable ingestion and a read-only Streamlit UI exist; no production forecast, Supabase integration, or Solar Monitoring System integration exists yet.
 
 ## Architecture decisions
 
@@ -27,6 +27,8 @@ Phase 2: durable local ingestion. No production forecast, Streamlit UI, Supabase
 - Historical backfill is sequential, bounded, delay-controlled, and preserves a per-day outcome instead of hiding failures.
 - Quality reporting compares each Kyiv delivery date against its expected 23/24/25 hourly periods and returns non-zero for incomplete coverage.
 - ENTSO-E HTTP errors are sanitized before logging so request URLs cannot expose the security token.
+- The Streamlit dashboard reads the same SQLite repository and is presentation-only: it does not collect data or mutate the database.
+- Forecast UI is explicitly unavailable until a baseline and walk-forward evaluation are implemented; historical curves must not be presented as predictions.
 
 ## Security note
 
@@ -34,8 +36,8 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
 
 ## Next priorities
 
-1. Run a staged historical backfill and review its quality report before widening the date range.
+1. Implement the naive comparable-day baseline and chronological walk-forward backtesting.
 2. Add cross-source comparison without silently selecting a winner.
 3. Add regression fixtures for documented 23/25-period operator days when available.
 4. Design and review optional PostgreSQL/Supabase migrations, including market price caps and feature publication timestamps.
-5. Only then implement the naive comparable-day baseline and walk-forward backtesting.
+5. Activate forecast charts only after their out-of-sample metrics and limitations are visible in the dashboard.

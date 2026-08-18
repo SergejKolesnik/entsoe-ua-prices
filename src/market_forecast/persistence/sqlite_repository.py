@@ -198,6 +198,19 @@ class SQLiteMarketRepository:
             ).fetchall()
         return [(_parse_utc(row[0]), Decimal(row[1])) for row in rows]
 
+    def available_period(self, source: str) -> tuple[datetime, datetime] | None:
+        """Return the earliest and latest stored delivery timestamps for a source."""
+
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """SELECT MIN(delivery_start_utc), MAX(delivery_start_utc)
+                   FROM market_prices WHERE source = ?""",
+                (source,),
+            ).fetchone()
+        if row is None or row[0] is None or row[1] is None:
+            return None
+        return _parse_utc(row[0]), _parse_utc(row[1])
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
         connection.execute("PRAGMA foreign_keys = ON")
