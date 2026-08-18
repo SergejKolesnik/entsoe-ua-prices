@@ -77,7 +77,27 @@ def _inject_styles() -> None:
     )
 
 
-def _header(latest_date: date) -> None:
+def _header(
+    latest_date: date,
+    latest_attempt: tuple[date, datetime, str, int, str | None] | None,
+) -> None:
+    expected_date = datetime.now(KYIV).date() + timedelta(days=1)
+    if latest_date >= expected_date:
+        status_text = "Дані актуальні"
+        status_color = "#58c68d"
+    elif latest_attempt is not None and latest_attempt[2] == "unpublished":
+        status_text = "Нові ціни ще не опубліковані"
+        status_color = AMBER
+    elif latest_attempt is not None and latest_attempt[2] == "failed":
+        status_text = "Помилка останнього оновлення"
+        status_color = RED
+    else:
+        status_text = "Очікується оновлення"
+        status_color = AMBER
+    attempt_line = "Автоматичних спроб ще не було"
+    if latest_attempt is not None:
+        attempted_local = latest_attempt[1].astimezone(KYIV)
+        attempt_line = f"Остання спроба: {attempted_local.strftime('%d.%m.%Y %H:%M')}"
     st.markdown(
         f"""
         <div class="rdn-header">
@@ -88,7 +108,11 @@ def _header(latest_date: date) -> None:
               <div class="rdn-subtitle">Україна · ринок на добу наперед · незалежна система</div>
             </div>
           </div>
-          <div class="rdn-status">Останній факт<br><strong>{latest_date.strftime('%d.%m.%Y')}</strong></div>
+          <div class="rdn-status">
+            <span style="color:{status_color};font-weight:700">● {status_text}</span><br>
+            Останні ціни: <strong>{latest_date.strftime('%d.%m.%Y')}</strong><br>
+            {attempt_line}
+          </div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -271,7 +295,8 @@ def main() -> None:
 
     earliest = available[0].astimezone(KYIV).date()
     latest = available[1].astimezone(KYIV).date()
-    _header(latest)
+    latest_attempt = repository.latest_collection_attempt(SOURCE)
+    _header(latest, latest_attempt)
 
     with st.sidebar:
         st.markdown("### Період аналізу")

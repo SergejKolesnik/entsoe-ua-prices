@@ -29,6 +29,9 @@ Phase 3: local analytics dashboard. Durable ingestion and a read-only Streamlit 
 - ENTSO-E HTTP errors are sanitized before logging so request URLs cannot expose the security token.
 - The Streamlit dashboard reads the same SQLite repository and is presentation-only: it does not collect data or mutate the database.
 - Forecast UI is explicitly unavailable until a baseline and walk-forward evaluation are implemented; historical curves must not be presented as predictions.
+- Page views never trigger source requests. `refresh_operator.py` is the scheduler-safe one-shot entry point and defaults to tomorrow in the Kyiv calendar.
+- Windows Task Scheduler runs the refresh at 14:15, 15:00, 16:00, and 17:00 local time; retries remain idempotent and missed runs start when the computer becomes available.
+- Every automatic attempt is stored as `collected`, `unpublished`, or `failed`; the dashboard exposes freshness without storing raw exception text that could contain sensitive URLs.
 
 ## Security note
 

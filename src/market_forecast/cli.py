@@ -25,6 +25,16 @@ def build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--source", required=True, choices=("entsoe", "operator"))
     collect.add_argument("--bidding-zone", help="Required EIC bidding zone for ENTSO-E.")
 
+    refresh = subparsers.add_parser(
+        "refresh-operator", help="Collect tomorrow's Operator result and record its status."
+    )
+    refresh.add_argument(
+        "--date",
+        type=date.fromisoformat,
+        dest="delivery_date",
+        help="Optional explicit delivery date; defaults to tomorrow in Kyiv.",
+    )
+
     backfill = subparsers.add_parser("backfill", help="Collect an inclusive date range.")
     backfill.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
     backfill.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
@@ -137,6 +147,35 @@ def main(argv: list[str] | None = None) -> int:
             f"unpublished={unpublished}"
         )
         return 1 if failures else 0
+    if args.command == "refresh-operator":
+        from market_forecast.config import Settings
+        from market_forecast.persistence import RawArtifactStore, SQLiteMarketRepository
+        from market_forecast.services import (
+            MarketCollectionService,
+            next_delivery_date,
+            refresh_operator_day,
+        )
+        from market_forecast.sources import OperatorMarketSource
+
+        settings = Settings.from_environment()
+        repository = SQLiteMarketRepository(settings.database_path)
+        service = MarketCollectionService(
+            repository,
+            RawArtifactStore(settings.raw_data_directory),
+        )
+        delivery_date = args.delivery_date or next_delivery_date()
+        result = refresh_operator_day(
+            delivery_date,
+            service,
+            OperatorMarketSource(timeout_seconds=settings.request_timeout_seconds),
+            repository,
+        )
+        details = f" inserted={result.inserted_records}" if result.status == "collected" else ""
+        message = f" error={result.message}" if result.message else ""
+        print(f"{result.delivery_date} {result.status}{details}{message}")
+        if result.status == "collected":
+            return 0
+        return 2 if result.status == "unpublished" else 1
     if args.command == "quality":
         from market_forecast.config import Settings
         from market_forecast.persistence import SQLiteMarketRepository

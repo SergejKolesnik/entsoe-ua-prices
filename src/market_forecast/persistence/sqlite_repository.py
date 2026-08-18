@@ -59,6 +59,19 @@ class SQLiteMarketRepository:
 
                 CREATE INDEX IF NOT EXISTS idx_market_prices_delivery
                 ON market_prices (delivery_start_utc, bidding_zone, market);
+
+                CREATE TABLE IF NOT EXISTS collection_attempts (
+                    id INTEGER PRIMARY KEY,
+                    source TEXT NOT NULL,
+                    delivery_date TEXT NOT NULL,
+                    attempted_at_utc TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK (status IN ('collected', 'unpublished', 'failed')),
+                    inserted_records INTEGER NOT NULL DEFAULT 0 CHECK (inserted_records >= 0),
+                    message TEXT
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_collection_attempts_latest
+                ON collection_attempts (source, attempted_at_utc DESC);
                 """
             )
 
@@ -210,6 +223,58 @@ class SQLiteMarketRepository:
         if row is None or row[0] is None or row[1] is None:
             return None
         return _parse_utc(row[0]), _parse_utc(row[1])
+
+    def record_collection_attempt(
+        self,
+        source: str,
+        delivery_date: date,
+        attempted_at_utc: datetime,
+        status: str,
+        inserted_records: int = 0,
+        message: str | None = None,
+    ) -> None:
+        """Persist one scheduler outcome for freshness reporting and diagnostics."""
+
+        if status not in {"collected", "unpublished", "failed"}:
+            raise ValueError("Unsupported collection attempt status")
+        if inserted_records < 0:
+            raise ValueError("inserted_records must not be negative")
+        attempted_at = _utc_iso(attempted_at_utc, "attempted_at_utc")
+        self.initialize()
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """INSERT INTO collection_attempts (
+                       source, delivery_date, attempted_at_utc, status,
+                       inserted_records, message
+                   ) VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    source,
+                    delivery_date.isoformat(),
+                    attempted_at,
+                    status,
+                    inserted_records,
+                    message,
+                ),
+            )
+
+    def latest_collection_attempt(
+        self, source: str
+    ) -> tuple[date, datetime, str, int, str | None] | None:
+        """Return the newest scheduler outcome for a source."""
+
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """SELECT delivery_date, attempted_at_utc, status,
+                          inserted_records, message
+                   FROM collection_attempts
+                   WHERE source = ?
+                   ORDER BY attempted_at_utc DESC, id DESC
+                   LIMIT 1""",
+                (source,),
+            ).fetchone()
+        if row is None:
+            return None
+        return date.fromisoformat(row[0]), _parse_utc(row[1]), row[2], int(row[3]), row[4]
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)

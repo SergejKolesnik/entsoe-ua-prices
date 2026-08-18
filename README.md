@@ -77,6 +77,22 @@ python -m streamlit run streamlit_app.py
 
 Streamlit prints the local browser address, normally `http://localhost:8501`. The dashboard reads `data/market_forecast.sqlite3` and does not contact or modify SkyGrid Solar. Its **Прогноз** tab deliberately shows the model as unavailable until a chronological backtest establishes a trustworthy baseline; the application never labels invented values as a forecast.
 
+## Automatic daily refresh
+
+The dashboard never downloads market data merely because somebody opened the page. A separate idempotent command requests tomorrow's Kyiv delivery day and records every outcome for the UI:
+
+```powershell
+python refresh_operator.py
+```
+
+On Windows, install the prepared Task Scheduler job from PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install_windows_refresh_task.ps1
+```
+
+The task runs at 14:15, 15:00, 16:00, and 17:00 in the computer's local timezone. Keep Windows configured for the Kyiv timezone. If the computer is off, `StartWhenAvailable` runs the missed task after startup. Each attempt is shown in the dashboard as current, unpublished, or failed; failures store only the exception type, never a response URL or token. Repeated successful runs are safe and do not duplicate hourly prices.
+
 ## Data-source responsibilities
 
 - `OperatorMarketSource` discovers published results and returns raw source metadata.
