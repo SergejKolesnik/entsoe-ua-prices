@@ -1,13 +1,61 @@
-# entsoe-ua-prices
+# Ukraine Energy Market Forecast
 
-Python-інструмент для автоматичного отримання цін на ринку «на добу наперед» (DAM) з платформи ENTSO-E для торгової зони України (UA-IPS).
+Independent Python foundation for collecting and validating Ukrainian day-ahead electricity-market data.
 
-## Основні можливості
-* Отримання актуальних цін через REST API ENTSO-E.
-* Конвертація XML-відповідей у зручні формати (JSON/Pandas DataFrame).
-* Обробка часових поясів (з UTC у локальний час України).
+The project is intentionally separate from SkyGrid Solar. It currently provides source adapters, normalized domain models, ENTSO-E XML parsing, and settlement-period validation. Forecasting and UI are not implemented yet.
 
-## Швидкий старт
-1. Отримайте `securityToken` на [ENTSO-E Transparency Platform](https://transparency.entsoe.eu/).
-2. Скопіюйте `.env.example` у `.env` та впишіть свій токен.
-3. Запустіть `main.py`.
+## Current capabilities
+
+- Discover official Market Operator DAM results for a requested delivery date.
+- Build the official Excel download URL only from a validated `hdata_link`.
+- Fetch ENTSO-E Transparency Platform documents with explicit query parameters.
+- Parse ENTSO-E price XML using interval timestamps and resolution.
+- Reject duplicate, missing, overlapping, naive, or inconsistent hourly observations.
+- Test 23-, 24-, and 25-period trading days without inventing missing values.
+
+## Setup
+
+Python 3.11+ is recommended.
+
+```bash
+python -m venv .venv
+python -m pip install -r requirements.txt
+```
+
+Local `.env` example:
+
+```env
+ENTSOE_TOKEN=replace_with_new_token
+```
+
+The previous token was exposed in public Git history and must not be reused.
+
+## Checks
+
+PowerShell:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m unittest discover -s tests -v
+python -m compileall -q src tests
+python -m market_forecast.cli --help
+```
+
+## Data-source responsibilities
+
+- `OperatorMarketSource` discovers published results and returns raw source metadata.
+- `EntsoeSource` downloads raw XML and does not parse or persist it.
+- `parse_price_document` converts ENTSO-E XML to immutable hourly records.
+- `validate_delivery_periods` verifies completeness and continuity.
+
+No source adapter writes CSV, database rows, or Git commits.
+
+## Research reference
+
+`docs/references/RDN_Deep_Analysis_and_Forecast_UA.pdf` documents prior monthly analysis for 2019-2025 with an external 2026 check. Its strongest result is negative but valuable: on the monthly dataset, more complex lagged-factor models did not beat the persistence baseline. We therefore use the report to define hypotheses and validation constraints, not as proof that a production hourly model will work.
+
+The engineering interpretation and reproducibility limits are recorded in `docs/references/README.md`.
+
+## Repository history
+
+The original prototype fetched ENTSO-E or data.gov.ua data directly from one `main.py` and appended a tracked CSV. That implementation is retained in Git history and tagged as `prototype-v0`; it is not part of the new runtime.
