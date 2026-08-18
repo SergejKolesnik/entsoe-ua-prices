@@ -57,7 +57,12 @@ class EntsoeSource:
             },
             timeout=self.timeout_seconds,
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            raise RuntimeError(
+                f"ENTSO-E request failed with HTTP status {response.status_code}"
+            ) from exc
         raw = RawResponse(
             content=response.content,
             content_type=response.headers.get("Content-Type", ""),

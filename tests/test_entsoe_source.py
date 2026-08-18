@@ -2,6 +2,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 
+import requests
+
 from market_forecast.sources.entsoe import API_URL, EntsoeSource
 
 
@@ -53,6 +55,26 @@ class EntsoeSourceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "must use UTC"):
             source.fetch_day_ahead_prices(start, start + timedelta(days=1), "zone")
+
+    def test_http_error_does_not_expose_token_or_response_url(self):
+        session = Mock()
+        response = Mock(status_code=401)
+        response.raise_for_status.side_effect = requests.HTTPError(
+            "401 for https://example.test?securityToken=secret-value"
+        )
+        session.get.return_value = response
+        source = EntsoeSource("secret-value", session=session)
+        start = datetime(2026, 8, 18, tzinfo=timezone.utc)
+
+        with self.assertRaisesRegex(RuntimeError, "HTTP status 401") as context:
+            source.fetch_day_ahead_prices(
+                start,
+                start + timedelta(days=1),
+                "10Y1001C--00003F",
+            )
+
+        self.assertNotIn("secret-value", str(context.exception))
+        self.assertNotIn("example.test", str(context.exception))
 
 
 if __name__ == "__main__":

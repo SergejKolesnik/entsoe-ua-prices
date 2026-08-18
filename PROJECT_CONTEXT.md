@@ -24,6 +24,9 @@ Phase 2: durable local ingestion. No production forecast, Streamlit UI, Supabase
 - Normalized rows use a source/market/zone/delivery-start uniqueness contract so retries are idempotent.
 - Market Operator results are legacy XLS files despite the endpoint name. The verified layout has one worksheet, one header row, and hourly rows with the DAM price in column 2.
 - The operator-generated OLE sector chain is malformed; tolerant loading is allowed only before strict row-count and numeric validation.
+- Historical backfill is sequential, bounded, delay-controlled, and preserves a per-day outcome instead of hiding failures.
+- Quality reporting compares each Kyiv delivery date against its expected 23/24/25 hourly periods and returns non-zero for incomplete coverage.
+- ENTSO-E HTTP errors are sanitized before logging so request URLs cannot expose the security token.
 
 ## Security note
 
@@ -31,7 +34,7 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
 
 ## Next priorities
 
-1. Add controlled date-range backfill and data-quality reporting.
+1. Run a staged historical backfill and review its quality report before widening the date range.
 2. Add cross-source comparison without silently selecting a winner.
 3. Add regression fixtures for documented 23/25-period operator days when available.
 4. Design and review optional PostgreSQL/Supabase migrations, including market price caps and feature publication timestamps.

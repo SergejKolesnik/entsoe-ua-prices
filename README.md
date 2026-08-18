@@ -55,6 +55,16 @@ The ENTSO-E bidding-zone EIC is intentionally explicit; the application does not
 
 Despite the `downloadxlsx` endpoint name, the Market Operator currently returns a legacy OLE `.xls` file. The parser uses tolerant workbook loading because the generated container has a malformed sector chain, then validates the real hourly row count and localized price values before persistence.
 
+Controlled historical collection and coverage reporting:
+
+```powershell
+python -m market_forecast.cli backfill --source operator --from 2026-08-01 --to 2026-08-18
+python -m market_forecast.cli quality --source operator --from 2026-08-01 --to 2026-08-18
+python -m market_forecast.cli quality --source operator --from 2026-08-01 --to 2026-08-18 --format json
+```
+
+Backfill is sequential, waits 0.5 seconds between requests by default, records each day as `collected`, `unpublished`, or `failed`, and refuses ranges above 366 days unless the safety limit is explicitly changed. Quality reporting exits non-zero when any requested delivery day is incomplete.
+
 ## Data-source responsibilities
 
 - `OperatorMarketSource` discovers published results and returns raw source metadata.

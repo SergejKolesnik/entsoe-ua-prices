@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Iterable
 
@@ -176,6 +177,27 @@ class SQLiteMarketRepository:
             row = connection.execute("SELECT COUNT(*) FROM market_prices").fetchone()
         return int(row[0]) if row else 0
 
+    def list_prices(
+        self,
+        source: str,
+        period_start_utc: datetime,
+        period_end_utc: datetime,
+    ) -> list[tuple[datetime, Decimal]]:
+        """Return ordered price values inside one explicit UTC interval."""
+
+        start = _utc_iso(period_start_utc, "period_start_utc")
+        end = _utc_iso(period_end_utc, "period_end_utc")
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT delivery_start_utc, price
+                   FROM market_prices
+                   WHERE source = ? AND delivery_start_utc >= ?
+                     AND delivery_start_utc < ?
+                   ORDER BY delivery_start_utc""",
+                (source, start, end),
+            ).fetchall()
+        return [(_parse_utc(row[0]), Decimal(row[1])) for row in rows]
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
         connection.execute("PRAGMA foreign_keys = ON")
@@ -186,3 +208,8 @@ def _utc_iso(value: datetime, name: str) -> str:
     if value.tzinfo is None or value.utcoffset() != timezone.utc.utcoffset(None):
         raise ValueError(f"{name} must use UTC")
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _parse_utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parsed.astimezone(timezone.utc)

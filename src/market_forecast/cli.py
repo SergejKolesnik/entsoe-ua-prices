@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 from datetime import date
+from decimal import Decimal
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,6 +24,20 @@ def build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--date", required=True, type=date.fromisoformat, dest="delivery_date")
     collect.add_argument("--source", required=True, choices=("entsoe", "operator"))
     collect.add_argument("--bidding-zone", help="Required EIC bidding zone for ENTSO-E.")
+
+    backfill = subparsers.add_parser("backfill", help="Collect an inclusive date range.")
+    backfill.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
+    backfill.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
+    backfill.add_argument("--source", required=True, choices=("entsoe", "operator"))
+    backfill.add_argument("--bidding-zone", help="Required EIC bidding zone for ENTSO-E.")
+    backfill.add_argument("--delay-seconds", type=float, default=0.5)
+    backfill.add_argument("--max-days", type=int, default=366)
+
+    quality = subparsers.add_parser("quality", help="Report stored hourly coverage.")
+    quality.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
+    quality.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
+    quality.add_argument("--source", required=True, choices=("entsoe", "operator"))
+    quality.add_argument("--format", choices=("text", "json"), default="text")
     return parser
 
 
@@ -80,6 +96,72 @@ def main(argv: list[str] | None = None) -> int:
             f"parsed={result.parsed_records}, inserted={result.inserted_records}, "
             f"sha256={result.artifact_sha256}"
         )
+        return 0
+    if args.command == "backfill":
+        from market_forecast.config import Settings
+        from market_forecast.persistence import RawArtifactStore, SQLiteMarketRepository
+        from market_forecast.services import MarketCollectionService, run_backfill
+        from market_forecast.sources import EntsoeSource, OperatorMarketSource
+
+        settings = Settings.from_environment()
+        service = MarketCollectionService(
+            SQLiteMarketRepository(settings.database_path),
+            RawArtifactStore(settings.raw_data_directory),
+        )
+        if args.source == "entsoe":
+            if not args.bidding_zone:
+                raise SystemExit("--bidding-zone is required for ENTSO-E")
+            source = EntsoeSource(
+                settings.require_entsoe_token(),
+                timeout_seconds=settings.request_timeout_seconds,
+            )
+            collect_day = lambda day: service.collect_entsoe(day, source, args.bidding_zone)
+        else:
+            source = OperatorMarketSource(timeout_seconds=settings.request_timeout_seconds)
+            collect_day = lambda day: service.collect_operator_artifact(day, source)
+        results = run_backfill(
+            args.date_from,
+            args.date_to,
+            collect_day,
+            delay_seconds=args.delay_seconds,
+            max_days=args.max_days,
+        )
+        for item in results:
+            details = f" inserted={item.inserted_records}" if item.status == "collected" else ""
+            message = f" error={item.message}" if item.message else ""
+            print(f"{item.delivery_date} {item.status}{details}{message}")
+        failures = sum(item.status == "failed" for item in results)
+        unpublished = sum(item.status == "unpublished" for item in results)
+        print(
+            f"Backfill summary: requested={len(results)}, failed={failures}, "
+            f"unpublished={unpublished}"
+        )
+        return 1 if failures else 0
+    if args.command == "quality":
+        from market_forecast.config import Settings
+        from market_forecast.persistence import SQLiteMarketRepository
+        from market_forecast.services import build_quality_report
+
+        settings = Settings.from_environment()
+        repository = SQLiteMarketRepository(settings.database_path)
+        repository.initialize()
+        source = "operator_market" if args.source == "operator" else "entsoe"
+        report = build_quality_report(repository, args.date_from, args.date_to, source)
+        if args.format == "json":
+            print(json.dumps([item.to_dict() for item in report], ensure_ascii=False, indent=2))
+        else:
+            for item in report:
+                values = ""
+                if item.actual_periods:
+                    values = (
+                        f" min={item.minimum_price} max={item.maximum_price} "
+                        f"avg={item.average_price.quantize(Decimal('0.01'))}"
+                    )
+                print(
+                    f"{item.delivery_date} {item.status} "
+                    f"periods={item.actual_periods}/{item.expected_periods}{values}"
+                )
+        return 1 if any(item.status != "complete" for item in report) else 0
     return 0
 
 
