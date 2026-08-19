@@ -4,6 +4,7 @@ from .backfill import BackfillDayResult, run_backfill
 from .collection import CollectionResult, MarketCollectionService
 from .data_quality import DailyQuality, build_quality_report
 from .scheduled_refresh import RefreshResult, next_delivery_date, refresh_operator_day
+from .forecast_snapshots import SnapshotGenerationResult, generate_baseline_snapshot
 
 __all__ = [
     "BackfillDayResult",
@@ -15,4 +16,6 @@ __all__ = [
     "RefreshResult",
     "next_delivery_date",
     "refresh_operator_day",
+    "SnapshotGenerationResult",
+    "generate_baseline_snapshot",
 ]

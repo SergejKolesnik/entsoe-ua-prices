@@ -34,6 +34,9 @@ Phase 4: transparent forecasting baseline. Durable ingestion, automated refresh,
 - Page views never trigger source requests. `refresh_operator.py` is the scheduler-safe one-shot entry point and defaults to tomorrow in the Kyiv calendar.
 - Windows Task Scheduler runs the refresh at 14:15, 15:00, 16:00, and 17:00 local time; retries remain idempotent and missed runs start when the computer becomes available.
 - Every automatic attempt is stored as `collected`, `unpublished`, or `failed`; the dashboard exposes freshness without storing raw exception text that could contain sensitive URLs.
+- Every successful scheduled refresh freezes an immutable `baseline-v1` forecast for the first unknown delivery day. A target/model/version uniqueness contract prevents hindsight rewrites.
+- Forecast runs retain their issue time, training cutoff, model version, backtest metrics, hourly prediction, P80 bounds, method, and sample count.
+- The Monitoring tab scores frozen points against actual prices only after those facts exist and reports operational MAE/RMSE separately from historical backtest metrics.
 
 ## Security note
 
@@ -41,8 +44,8 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
 
 ## Next priorities
 
-1. Accumulate a wider history and monitor baseline stability by rolling evaluation window.
-2. Add cross-source comparison without silently selecting a winner.
-3. Add effective-dated price caps and calendar features before testing any ML candidate.
+1. Accumulate at least 14–30 real frozen forecasts and monitor operational stability.
+2. Add effective-dated price caps and calendar features as a separate shadow candidate.
+3. Add cross-source comparison without silently selecting a winner.
 4. Add regression fixtures for documented 23/25-period operator days when available.
 5. Design and review optional PostgreSQL/Supabase migrations, including feature publication timestamps.

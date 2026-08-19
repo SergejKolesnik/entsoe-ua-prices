@@ -95,6 +95,15 @@ powershell -ExecutionPolicy Bypass -File scripts\install_windows_refresh_task.ps
 
 The task runs at 14:15, 15:00, 16:00, and 17:00 in the computer's local timezone. Keep Windows configured for the Kyiv timezone. If the computer is off, `StartWhenAvailable` runs the missed task after startup. Each attempt is shown in the dashboard as current, unpublished, or failed; failures store only the exception type, never a response URL or token. Repeated successful runs are safe and do not duplicate hourly prices.
 
+After every successful refresh, the same finite job also freezes the first still-unknown delivery day as an immutable `baseline-v1` snapshot. Manual snapshot generation is available for diagnostics:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m market_forecast.cli snapshot-baseline
+```
+
+The **Моніторинг** tab compares each frozen hourly vintage with facts only after they arrive. It shows forecast coverage, observed MAE/RMSE, the original P80 band, and a permanent run journal. Repeated scheduler attempts return the existing identical snapshot; they never rewrite a forecast after the fact.
+
 ## Data-source responsibilities
 
 - `OperatorMarketSource` discovers published results and returns raw source metadata.

@@ -156,6 +156,58 @@ class PersistenceTests(unittest.TestCase):
             self.assertEqual(bounds[1], make_price().delivery_start_utc)
             self.assertIsNone(repository.available_period("operator_market"))
 
+    def test_forecast_snapshots_are_idempotent_and_immutable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = SQLiteMarketRepository(Path(directory) / "market.sqlite3")
+            timestamp = datetime(2026, 8, 20, tzinfo=timezone.utc)
+            common = dict(
+                target_delivery_date=date(2026, 8, 20),
+                issued_at_utc=datetime(2026, 8, 19, 12, tzinfo=timezone.utc),
+                training_cutoff_date=date(2026, 8, 19),
+                model_name="previous_day",
+                model_version="baseline-v1",
+                backtest_days=30,
+                backtest_observations=720,
+                mae=Decimal("1000"),
+                rmse=Decimal("1500"),
+                absolute_error_p80=Decimal("2000"),
+            )
+            points = [
+                (
+                    timestamp,
+                    Decimal("5000"),
+                    Decimal("3000"),
+                    Decimal("7000"),
+                    "previous_day",
+                    1,
+                )
+            ]
+
+            run_id, first_created = repository.store_forecast_snapshot(
+                points=points, **common
+            )
+            repeated_id, second_created = repository.store_forecast_snapshot(
+                points=points, **common
+            )
+
+            self.assertTrue(first_created)
+            self.assertFalse(second_created)
+            self.assertEqual(run_id, repeated_id)
+            self.assertEqual(repository.list_forecast_runs()[0][0], run_id)
+            self.assertEqual(repository.list_forecast_points(run_id)[0][1], Decimal("5000"))
+            changed = [
+                (
+                    timestamp,
+                    Decimal("6000"),
+                    Decimal("4000"),
+                    Decimal("8000"),
+                    "previous_day",
+                    1,
+                )
+            ]
+            with self.assertRaisesRegex(ValueError, "Conflicting immutable forecast"):
+                repository.store_forecast_snapshot(points=changed, **common)
+
 
 if __name__ == "__main__":
     unittest.main()

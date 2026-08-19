@@ -35,6 +35,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional explicit delivery date; defaults to tomorrow in Kyiv.",
     )
 
+    subparsers.add_parser(
+        "snapshot-baseline",
+        help="Freeze the next operational baseline forecast for later scoring.",
+    )
+
     backfill = subparsers.add_parser("backfill", help="Collect an inclusive date range.")
     backfill.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
     backfill.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
@@ -174,8 +179,30 @@ def main(argv: list[str] | None = None) -> int:
         message = f" error={result.message}" if result.message else ""
         print(f"{result.delivery_date} {result.status}{details}{message}")
         if result.status == "collected":
+            from market_forecast.services import generate_baseline_snapshot
+
+            snapshot = generate_baseline_snapshot(repository)
+            snapshot_status = "created" if snapshot.created else "already_exists"
+            print(
+                f"Forecast snapshot {snapshot_status}: target={snapshot.target_delivery_date} "
+                f"model={snapshot.model_name}@{snapshot.model_version} "
+                f"points={snapshot.points}"
+            )
             return 0
         return 2 if result.status == "unpublished" else 1
+    if args.command == "snapshot-baseline":
+        from market_forecast.config import Settings
+        from market_forecast.persistence import SQLiteMarketRepository
+        from market_forecast.services import generate_baseline_snapshot
+
+        settings = Settings.from_environment()
+        result = generate_baseline_snapshot(SQLiteMarketRepository(settings.database_path))
+        status = "created" if result.created else "already_exists"
+        print(
+            f"Forecast snapshot {status}: target={result.target_delivery_date} "
+            f"model={result.model_name}@{result.model_version} points={result.points}"
+        )
+        return 0
     if args.command == "quality":
         from market_forecast.config import Settings
         from market_forecast.persistence import SQLiteMarketRepository

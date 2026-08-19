@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import math
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -414,6 +415,154 @@ def _draw_forecast(frame: pd.DataFrame, latest_date: date) -> None:
     )
 
 
+def _draw_forecast_monitoring(database_path: Path) -> None:
+    repository = SQLiteMarketRepository(database_path)
+    runs = repository.list_forecast_runs(limit=30)
+    if not runs:
+        st.info(
+            "Ще немає зафіксованих прогнозів. Перший snapshot буде створено "
+            "автоматично після успішного оновлення РДН."
+        )
+        return
+
+    run_by_id = {item[0]: item for item in runs}
+    selected_run_id = st.selectbox(
+        "Зафіксований прогноз",
+        options=list(run_by_id),
+        format_func=lambda run_id: (
+            f"{run_by_id[run_id][1].strftime('%d.%m.%Y')} · "
+            f"{run_by_id[run_id][4]}@{run_by_id[run_id][5]}"
+        ),
+    )
+    run = run_by_id[selected_run_id]
+    points = repository.list_forecast_points(selected_run_id)
+    if not points:
+        st.error("Прогнозний запуск не містить погодинних значень.")
+        return
+    actual_rows = repository.list_prices(
+        SOURCE,
+        points[0][0],
+        points[-1][0] + timedelta(hours=1),
+    )
+    actual_by_time = dict(actual_rows)
+    matched = [
+        (timestamp, predicted, actual_by_time[timestamp])
+        for timestamp, predicted, *_ in points
+        if timestamp in actual_by_time
+    ]
+    complete = len(matched) == len(points)
+    mae = None
+    rmse = None
+    if complete:
+        absolute_errors = [abs(actual - predicted) for _, predicted, actual in matched]
+        mae = sum(absolute_errors, Decimal(0)) / len(absolute_errors)
+        mse = sum(
+            (actual - predicted) ** 2 for _, predicted, actual in matched
+        ) / len(matched)
+        rmse = Decimal(str(math.sqrt(float(mse))))
+
+    issued_local = run[2].astimezone(KYIV)
+    columns = st.columns(4)
+    columns[0].metric("Дата прогнозу", run[1].strftime("%d.%m.%Y"))
+    columns[1].metric("Зафіксовано", issued_local.strftime("%d.%m %H:%M"))
+    columns[2].metric("Факт отримано", f"{len(matched)}/{len(points)} год")
+    columns[3].metric(
+        "Фактичний MAE",
+        f"{float(mae):,.0f} грн/МВт·год" if mae is not None else "Очікуємо",
+    )
+
+    starts = [item[0].astimezone(KYIV) for item in points]
+    predicted = [float(item[1]) for item in points]
+    lower = [float(item[2]) for item in points]
+    upper = [float(item[3]) for item in points]
+    figure = go.Figure()
+    figure.add_trace(
+        go.Scatter(
+            x=starts,
+            y=upper,
+            mode="lines",
+            line=dict(width=0),
+            showlegend=False,
+            hoverinfo="skip",
+        )
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=starts,
+            y=lower,
+            mode="lines",
+            line=dict(width=0),
+            fill="tonexty",
+            fillcolor="rgba(55,138,221,.18)",
+            name="Зафіксований P80-коридор",
+        )
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=starts,
+            y=predicted,
+            mode="lines+markers",
+            line=dict(color=AMBER, width=3),
+            marker=dict(size=5),
+            name="Зафіксований прогноз",
+        )
+    )
+    if actual_rows:
+        figure.add_trace(
+            go.Scatter(
+                x=[timestamp.astimezone(KYIV) for timestamp, _ in actual_rows],
+                y=[float(value) for _, value in actual_rows],
+                mode="lines+markers",
+                line=dict(color="#58c68d", width=2.5),
+                marker=dict(size=5),
+                name="Фактична ціна",
+            )
+        )
+    figure.update_layout(**_chart_layout(410, "грн/МВт·год"))
+    figure.update_xaxes(title="Година постачання", dtick=2 * 60 * 60 * 1000)
+    st.plotly_chart(figure, width="stretch")
+
+    summary_rows = []
+    for item in runs:
+        run_points = repository.list_forecast_points(item[0])
+        run_actual = dict(
+            repository.list_prices(
+                SOURCE,
+                run_points[0][0],
+                run_points[-1][0] + timedelta(hours=1),
+            )
+        )
+        errors = [
+            abs(run_actual[timestamp] - prediction)
+            for timestamp, prediction, *_ in run_points
+            if timestamp in run_actual
+        ]
+        observed_mae = (
+            float(sum(errors, Decimal(0)) / len(errors))
+            if len(errors) == len(run_points)
+            else None
+        )
+        summary_rows.append(
+            {
+                "Дата": item[1],
+                "Модель": f"{item[4]}@{item[5]}",
+                "Створено": item[2].astimezone(KYIV),
+                "Факт": f"{len(errors)}/{len(run_points)}",
+                "MAE": observed_mae,
+                "Статус": "Оцінено" if observed_mae is not None else "Очікує факт",
+            }
+        )
+    st.markdown("#### Журнал незмінних прогнозів")
+    st.dataframe(
+        pd.DataFrame(summary_rows),
+        width="stretch",
+        hide_index=True,
+        column_config={"MAE": st.column_config.NumberColumn(format="%.0f грн/МВт·год")},
+    )
+    if complete and rmse is not None:
+        st.caption(f"RMSE вибраного прогнозу: {float(rmse):,.0f} грн/МВт·год.")
+
+
 def main() -> None:
     st.set_page_config(page_title="RDN Market Intelligence", page_icon="⚡", layout="wide")
     _inject_styles()
@@ -463,8 +612,8 @@ def main() -> None:
         st.warning("У вибраному періоді немає даних.")
         return
 
-    overview, history, quality, forecast = st.tabs(
-        ["Огляд дня", "Історія", "Якість даних", "Прогноз"]
+    overview, history, quality, forecast, monitoring = st.tabs(
+        ["Огляд дня", "Історія", "Якість даних", "Прогноз", "Моніторинг"]
     )
     with overview:
         _draw_overview(frame, selected_date)
@@ -475,6 +624,8 @@ def main() -> None:
     with forecast:
         forecast_history = _load_prices(str(settings.database_path), earliest, latest)
         _draw_forecast(forecast_history, latest)
+    with monitoring:
+        _draw_forecast_monitoring(settings.database_path)
 
 
 if __name__ == "__main__":

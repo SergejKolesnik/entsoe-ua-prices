@@ -72,6 +72,33 @@ class SQLiteMarketRepository:
 
                 CREATE INDEX IF NOT EXISTS idx_collection_attempts_latest
                 ON collection_attempts (source, attempted_at_utc DESC);
+
+                CREATE TABLE IF NOT EXISTS forecast_runs (
+                    id INTEGER PRIMARY KEY,
+                    target_delivery_date TEXT NOT NULL,
+                    issued_at_utc TEXT NOT NULL,
+                    training_cutoff_date TEXT NOT NULL,
+                    model_name TEXT NOT NULL,
+                    model_version TEXT NOT NULL,
+                    backtest_days INTEGER NOT NULL CHECK (backtest_days > 0),
+                    backtest_observations INTEGER NOT NULL CHECK (backtest_observations > 0),
+                    mae TEXT NOT NULL,
+                    rmse TEXT NOT NULL,
+                    absolute_error_p80 TEXT NOT NULL,
+                    UNIQUE (target_delivery_date, model_name, model_version)
+                );
+
+                CREATE TABLE IF NOT EXISTS forecast_points (
+                    id INTEGER PRIMARY KEY,
+                    forecast_run_id INTEGER NOT NULL REFERENCES forecast_runs(id),
+                    delivery_start_utc TEXT NOT NULL,
+                    predicted_price TEXT NOT NULL,
+                    interval_low TEXT NOT NULL,
+                    interval_high TEXT NOT NULL,
+                    method TEXT NOT NULL,
+                    sample_count INTEGER NOT NULL CHECK (sample_count > 0),
+                    UNIQUE (forecast_run_id, delivery_start_utc)
+                );
                 """
             )
 
@@ -275,6 +302,160 @@ class SQLiteMarketRepository:
         if row is None:
             return None
         return date.fromisoformat(row[0]), _parse_utc(row[1]), row[2], int(row[3]), row[4]
+
+    def store_forecast_snapshot(
+        self,
+        *,
+        target_delivery_date: date,
+        issued_at_utc: datetime,
+        training_cutoff_date: date,
+        model_name: str,
+        model_version: str,
+        backtest_days: int,
+        backtest_observations: int,
+        mae: Decimal,
+        rmse: Decimal,
+        absolute_error_p80: Decimal,
+        points: Iterable[tuple[datetime, Decimal, Decimal, Decimal, str, int]],
+    ) -> tuple[int, bool]:
+        """Insert one immutable forecast vintage, returning its id and creation flag."""
+
+        issued_at = _utc_iso(issued_at_utc, "issued_at_utc")
+        point_rows = list(points)
+        if not point_rows:
+            raise ValueError("Forecast snapshot must contain points")
+        self.initialize()
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                """INSERT INTO forecast_runs (
+                       target_delivery_date, issued_at_utc, training_cutoff_date,
+                       model_name, model_version, backtest_days,
+                       backtest_observations, mae, rmse, absolute_error_p80
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(target_delivery_date, model_name, model_version)
+                   DO NOTHING""",
+                (
+                    target_delivery_date.isoformat(),
+                    issued_at,
+                    training_cutoff_date.isoformat(),
+                    model_name,
+                    model_version,
+                    backtest_days,
+                    backtest_observations,
+                    str(mae),
+                    str(rmse),
+                    str(absolute_error_p80),
+                ),
+            )
+            created = cursor.rowcount == 1
+            run_row = connection.execute(
+                """SELECT id FROM forecast_runs
+                   WHERE target_delivery_date = ? AND model_name = ? AND model_version = ?""",
+                (target_delivery_date.isoformat(), model_name, model_version),
+            ).fetchone()
+            if run_row is None:
+                raise RuntimeError("Forecast run could not be persisted")
+            run_id = int(run_row[0])
+            if created:
+                for timestamp, predicted, low, high, method, sample_count in point_rows:
+                    connection.execute(
+                        """INSERT INTO forecast_points (
+                               forecast_run_id, delivery_start_utc, predicted_price,
+                               interval_low, interval_high, method, sample_count
+                           ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            run_id,
+                            _utc_iso(timestamp, "delivery_start_utc"),
+                            str(predicted),
+                            str(low),
+                            str(high),
+                            method,
+                            sample_count,
+                        ),
+                    )
+            else:
+                stored = connection.execute(
+                    """SELECT delivery_start_utc, predicted_price, interval_low,
+                              interval_high, method, sample_count
+                       FROM forecast_points WHERE forecast_run_id = ?
+                       ORDER BY delivery_start_utc""",
+                    (run_id,),
+                ).fetchall()
+                expected = sorted(
+                    (
+                        _utc_iso(timestamp, "delivery_start_utc"),
+                        str(predicted),
+                        str(low),
+                        str(high),
+                        method,
+                        sample_count,
+                    )
+                    for timestamp, predicted, low, high, method, sample_count in point_rows
+                )
+                if stored != expected:
+                    raise ValueError("Conflicting immutable forecast snapshot already exists")
+        return run_id, created
+
+    def list_forecast_runs(
+        self, limit: int = 30
+    ) -> list[tuple[int, date, datetime, date, str, str, int, int, Decimal, Decimal, Decimal]]:
+        """Return newest immutable forecast vintages for monitoring."""
+
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT id, target_delivery_date, issued_at_utc,
+                          training_cutoff_date, model_name, model_version,
+                          backtest_days, backtest_observations, mae, rmse,
+                          absolute_error_p80
+                   FROM forecast_runs
+                   ORDER BY target_delivery_date DESC, issued_at_utc DESC
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [
+            (
+                int(row[0]),
+                date.fromisoformat(row[1]),
+                _parse_utc(row[2]),
+                date.fromisoformat(row[3]),
+                row[4],
+                row[5],
+                int(row[6]),
+                int(row[7]),
+                Decimal(row[8]),
+                Decimal(row[9]),
+                Decimal(row[10]),
+            )
+            for row in rows
+        ]
+
+    def list_forecast_points(
+        self, forecast_run_id: int
+    ) -> list[tuple[datetime, Decimal, Decimal, Decimal, str, int]]:
+        """Return ordered points for one immutable forecast vintage."""
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT delivery_start_utc, predicted_price, interval_low,
+                          interval_high, method, sample_count
+                   FROM forecast_points
+                   WHERE forecast_run_id = ?
+                   ORDER BY delivery_start_utc""",
+                (forecast_run_id,),
+            ).fetchall()
+        return [
+            (
+                _parse_utc(row[0]),
+                Decimal(row[1]),
+                Decimal(row[2]),
+                Decimal(row[3]),
+                row[4],
+                int(row[5]),
+            )
+            for row in rows
+        ]
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
