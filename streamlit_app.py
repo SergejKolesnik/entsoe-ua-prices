@@ -232,19 +232,36 @@ def _draw_history(frame: pd.DataFrame) -> None:
     fig.update_xaxes(title="Дата постачання")
     st.plotly_chart(fig, width="stretch")
 
-    matrix = frame.pivot_table(index="delivery_date", columns="hour", values="price", aggfunc="first")
-    matrix = matrix.reindex(columns=range(24))
+    weekday_labels = {
+        0: "Понеділок",
+        1: "Вівторок",
+        2: "Середа",
+        3: "Четвер",
+        4: "Пʼятниця",
+        5: "Субота",
+        6: "Неділя",
+    }
+    weekly = frame.copy()
+    weekly["weekday"] = weekly["delivery_start"].dt.weekday
+    matrix = weekly.pivot_table(
+        index="weekday", columns="hour", values="price", aggfunc="mean"
+    ).reindex(index=range(7), columns=range(24))
+    st.markdown("#### Типовий тижневий профіль")
+    st.caption(
+        "Середня ціна для кожної години та дня тижня у вибраному періоді. "
+        "Тепліші кольори означають дорожчі години."
+    )
     heatmap = go.Figure(
         go.Heatmap(
             z=matrix.values,
             x=list(matrix.columns),
-            y=[item.strftime("%d.%m") for item in matrix.index],
+            y=[weekday_labels[item] for item in matrix.index],
             colorscale=[[0, "#10243b"], [0.45, BLUE], [0.72, AMBER], [1, RED]],
             colorbar=dict(title="грн/МВт·год"),
-            hovertemplate="%{y} · %{x}:00<br>%{z:,.0f} грн/МВт·год<extra></extra>",
+            hovertemplate="%{y} · %{x}:00<br>Середня: %{z:,.0f} грн/МВт·год<extra></extra>",
         )
     )
-    heatmap.update_layout(**_chart_layout(max(430, len(matrix) * 18), "Дата"))
+    heatmap.update_layout(**_chart_layout(390, "День тижня"))
     heatmap.update_xaxes(title="Година", dtick=2)
     st.plotly_chart(heatmap, width="stretch")
 
