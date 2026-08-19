@@ -23,12 +23,24 @@ def parse_price_document(xml_content: bytes) -> list[HourlyMarketPrice]:
     except ET.ParseError as exc:
         raise ValueError("ENTSO-E response is not valid XML") from exc
 
+    if root.tag.split("}", 1)[-1] != "Publication_MarketDocument":
+        raise ValueError("ENTSO-E response is not a price publication document")
+
     namespace = _namespace(root.tag)
     document_id = _text(root, "mRID", namespace, required=False)
-    currency = _text(root, "currency_Unit.name", namespace)
+    document_currency = _text(
+        root, "currency_Unit.name", namespace, required=False
+    )
     records: list[HourlyMarketPrice] = []
 
     for series in root.findall(_q("TimeSeries", namespace)):
+        currency = (
+            _text(series, "currency_Unit.name", namespace, required=False)
+            or document_currency
+        )
+        if not currency:
+            raise ValueError("ENTSO-E TimeSeries has no currency")
+        curve_type = _text(series, "curveType", namespace, required=False)
         zone = (
             _text(series, "in_Domain.mRID", namespace, required=False)
             or _text(series, "out_Domain.mRID", namespace, required=False)
@@ -51,6 +63,7 @@ def parse_price_document(xml_content: bytes) -> list[HourlyMarketPrice]:
             if end <= start:
                 raise ValueError("ENTSO-E period end must be after start")
 
+            parsed_points: list[tuple[int, Decimal]] = []
             for point in period.findall(_q("Point", namespace)):
                 position_text = _text(point, "position", namespace)
                 price_text = _text(point, "price.amount", namespace)
@@ -61,28 +74,56 @@ def parse_price_document(xml_content: bytes) -> list[HourlyMarketPrice]:
                     raise ValueError("ENTSO-E point contains invalid position or price") from exc
                 if position < 1:
                     raise ValueError("ENTSO-E position must be positive")
+                parsed_points.append((position, price))
 
-                delivery_start = start + resolution * (position - 1)
-                delivery_end = delivery_start + resolution
-                if delivery_end > end:
-                    raise ValueError("ENTSO-E point falls outside declared period")
-                records.append(
-                    HourlyMarketPrice(
-                        delivery_start_utc=delivery_start,
-                        delivery_end_utc=delivery_end,
-                        price=price,
-                        currency=currency,
-                        bidding_zone=zone,
-                        market="day_ahead",
-                        source="entsoe",
-                        settlement_period=position,
-                        source_revision=document_id,
-                    )
+            parsed_points.sort(key=lambda item: item[0])
+            if len({position for position, _ in parsed_points}) != len(parsed_points):
+                raise ValueError("ENTSO-E period contains duplicate positions")
+            interval_count, remainder = divmod(end - start, resolution)
+            if remainder:
+                raise ValueError("ENTSO-E period is not aligned to its resolution")
+            for index, (position, price) in enumerate(parsed_points):
+                next_position = (
+                    parsed_points[index + 1][0]
+                    if index + 1 < len(parsed_points)
+                    else interval_count + 1
                 )
+                block_end = next_position if curve_type == "A03" else position + 1
+                for expanded_position in range(position, block_end):
+                    delivery_start = start + resolution * (expanded_position - 1)
+                    delivery_end = delivery_start + resolution
+                    if delivery_end > end:
+                        raise ValueError("ENTSO-E point falls outside declared period")
+                    records.append(
+                        HourlyMarketPrice(
+                            delivery_start_utc=delivery_start,
+                            delivery_end_utc=delivery_end,
+                            price=price,
+                            currency=currency,
+                            bidding_zone=zone,
+                            market="day_ahead",
+                            source="entsoe",
+                            settlement_period=expanded_position,
+                            source_revision=document_id,
+                        )
+                    )
 
     if not records:
         raise ValueError("ENTSO-E document contains no price points")
-    return sorted(records, key=lambda item: item.delivery_start_utc)
+
+    unique: dict[tuple[datetime, datetime, str, str], HourlyMarketPrice] = {}
+    for record in records:
+        key = (
+            record.delivery_start_utc,
+            record.delivery_end_utc,
+            record.bidding_zone,
+            record.currency,
+        )
+        existing = unique.get(key)
+        if existing is not None and existing.price != record.price:
+            raise ValueError("ENTSO-E document contains conflicting duplicate prices")
+        unique.setdefault(key, record)
+    return sorted(unique.values(), key=lambda item: item.delivery_start_utc)
 
 
 def _namespace(tag: str) -> str:

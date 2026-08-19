@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -48,7 +48,21 @@ class MarketCollectionService:
             delivery_date + timedelta(days=1), time.min, kyiv
         ).astimezone(timezone.utc)
         raw = source.fetch_day_ahead_prices(period_start, period_end, bidding_zone_eic)
-        records = parse_price_document(raw.content)
+        parsed_records = parse_price_document(raw.content)
+        records = [
+            replace(record, settlement_period=index)
+            for index, record in enumerate(
+                (
+                    record
+                    for record in parsed_records
+                    if record.delivery_start_utc >= period_start
+                    and record.delivery_end_utc <= period_end
+                ),
+                start=1,
+            )
+        ]
+        if not records:
+            raise ValueError("ENTSO-E prices do not overlap the requested delivery day")
         validate_delivery_periods(records)
         if (
             records[0].delivery_start_utc != period_start

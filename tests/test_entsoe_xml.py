@@ -33,6 +33,46 @@ def build_document(points: list[tuple[int, str]], end: str = "2026-08-19T00:00Z"
 
 
 class EntsoeXmlTests(unittest.TestCase):
+    def test_accepts_currency_declared_inside_time_series(self):
+        xml = build_document([(1, "5000.25"), (2, "5100.75")]).replace(
+            b"<currency_Unit.name>EUR</currency_Unit.name>",
+            b"",
+            1,
+        ).replace(
+            b"<TimeSeries>",
+            b"<TimeSeries><currency_Unit.name>EUR</currency_Unit.name>",
+            1,
+        )
+
+        records = parse_price_document(xml)
+
+        self.assertEqual({record.currency for record in records}, {"EUR"})
+
+    def test_deduplicates_identical_time_series(self):
+        xml = build_document([(1, "5000.25"), (2, "5100.75")])
+        series_start = xml.index(b"<TimeSeries>")
+        series_end = xml.index(b"</TimeSeries>") + len(b"</TimeSeries>")
+        series = xml[series_start:series_end]
+        xml = xml[:series_end] + series + xml[series_end:]
+
+        records = parse_price_document(xml)
+
+        self.assertEqual(len(records), 2)
+
+    def test_expands_variable_sized_price_blocks(self):
+        xml = build_document(
+            [(1, "50"), (3, "70")],
+            end="2026-08-18T01:00Z",
+        ).replace(b"PT60M", b"PT15M").replace(
+            b"<TimeSeries>", b"<TimeSeries><curveType>A03</curveType>"
+        )
+
+        records = parse_price_document(xml)
+
+        self.assertEqual([record.price for record in records], [
+            Decimal("50"), Decimal("50"), Decimal("70"), Decimal("70")
+        ])
+
     def test_parses_declared_intervals_and_decimal_prices(self):
         records = parse_price_document(build_document([(1, "5000.25"), (2, "5100.75")]))
 
@@ -43,7 +83,7 @@ class EntsoeXmlTests(unittest.TestCase):
         self.assertEqual(records[0].source_revision, "revision-42")
 
     def test_rejects_html_error_body(self):
-        with self.assertRaisesRegex(ValueError, "missing currency"):
+        with self.assertRaisesRegex(ValueError, "not a price publication"):
             parse_price_document(b"<html><body>Unauthorized</body></html>")
 
     def test_rejects_point_outside_period(self):
