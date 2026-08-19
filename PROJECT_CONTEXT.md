@@ -37,6 +37,9 @@ Phase 4: transparent forecasting baseline. Durable ingestion, automated refresh,
 - Every successful scheduled refresh freezes an immutable `baseline-v1` forecast for the first unknown delivery day. A target/model/version uniqueness contract prevents hindsight rewrites.
 - Forecast runs retain their issue time, training cutoff, model version, backtest metrics, hourly prediction, P80 bounds, method, and sample count.
 - The Monitoring tab scores frozen points against actual prices only after those facts exist and reports operational MAE/RMSE separately from historical backtest metrics.
+- Neighbor-market support is additive and uses explicit ENTSO-E bidding zones for PL, SK, HU, and RO. Database reads and uniqueness remain isolated by bidding zone.
+- ENTSO-E day-ahead prices accept validated 15/30/60-minute intervals. The comparison UI aggregates only complete sub-hourly groups to UTC-aligned hourly averages because SDAC moved to 15-minute MTU from delivery day 2025-10-01.
+- Neighbor prices remain in EUR/MWh; no Ukrainian spread is displayed until historical official NBU rates are implemented. Moldova remains pending source verification.
 
 ## Security note
 
@@ -45,7 +48,8 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
 ## Next priorities
 
 1. Accumulate at least 14–30 real frozen forecasts and monitor operational stability.
-2. Add effective-dated price caps and calendar features as a separate shadow candidate.
-3. Add cross-source comparison without silently selecting a winner.
-4. Add regression fixtures for documented 23/25-period operator days when available.
-5. Design and review optional PostgreSQL/Supabase migrations, including feature publication timestamps.
+2. Obtain a new ENTSO-E token and run a staged neighbor-market backfill before enabling live comparison.
+3. Add official historical NBU rates for currency-normalized Ukrainian spreads.
+4. Add effective-dated price caps and calendar features as a separate shadow candidate.
+5. Add regression fixtures for documented 23/25-period operator days when available.
+6. Design and review optional PostgreSQL/Supabase migrations, including feature publication timestamps.

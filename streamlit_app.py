@@ -21,8 +21,9 @@ if str(SOURCE_ROOT) not in sys.path:
 
 from market_forecast.config import Settings  # noqa: E402
 from market_forecast.forecasting import build_day_forecast, walk_forward_backtest  # noqa: E402
+from market_forecast.neighbor_markets import NEIGHBOR_MARKETS  # noqa: E402
 from market_forecast.persistence import SQLiteMarketRepository  # noqa: E402
-from market_forecast.services import build_quality_report  # noqa: E402
+from market_forecast.services import aggregate_price_rows_hourly, build_quality_report  # noqa: E402
 
 
 KYIV = ZoneInfo("Europe/Kyiv")
@@ -563,6 +564,134 @@ def _draw_forecast_monitoring(database_path: Path) -> None:
         st.caption(f"RMSE вибраного прогнозу: {float(rmse):,.0f} грн/МВт·год.")
 
 
+@st.cache_data(ttl=60)
+def _load_neighbor_prices(
+    database_path: str, date_from: date, date_to: date
+) -> pd.DataFrame:
+    repository = SQLiteMarketRepository(Path(database_path))
+    repository.initialize()
+    start = datetime.combine(date_from, time.min, KYIV).astimezone(timezone.utc)
+    end = datetime.combine(date_to + timedelta(days=1), time.min, KYIV).astimezone(
+        timezone.utc
+    )
+    records = []
+    for market in NEIGHBOR_MARKETS:
+        raw_rows = repository.list_prices(
+            "entsoe", start, end, bidding_zone=market.bidding_zone_eic
+        )
+        if not raw_rows:
+            continue
+        for timestamp, price in aggregate_price_rows_hourly(raw_rows):
+            local = timestamp.astimezone(KYIV)
+            records.append(
+                {
+                    "delivery_start": local,
+                    "delivery_date": local.date(),
+                    "hour": local.hour,
+                    "market_code": market.code,
+                    "market_name": market.name_uk,
+                    "price_eur": float(price),
+                }
+            )
+    return pd.DataFrame(records)
+
+
+def _draw_neighbor_markets(
+    database_path: Path,
+    date_from: date,
+    date_to: date,
+    selected_date: date,
+) -> None:
+    frame = _load_neighbor_prices(str(database_path), date_from, date_to)
+    if frame.empty:
+        st.info(
+            "Даних сусідніх ринків у локальній базі ще немає. Код збору готовий, "
+            "але для ENTSO-E потрібен новий персональний API-токен."
+        )
+        st.code(
+            "$env:ENTSOE_TOKEN = \"new-token\"\n"
+            "python -m market_forecast.cli backfill-neighbors "
+            "--market all --from 2025-08-19 --to 2026-08-20",
+            language="powershell",
+        )
+        st.caption(
+            "Старий токен із Git-історії не використовується. Після налаштування "
+            "живі дані зʼявляться тут без змін українського контуру."
+        )
+        return
+
+    available_codes = [
+        market.code
+        for market in NEIGHBOR_MARKETS
+        if market.code in set(frame["market_code"])
+    ]
+    selected_codes = st.multiselect(
+        "Ринки",
+        options=available_codes,
+        default=available_codes,
+        format_func=lambda code: next(
+            market.name_uk for market in NEIGHBOR_MARKETS if market.code == code
+        ),
+    )
+    if not selected_codes:
+        st.info("Виберіть хоча б один ринок.")
+        return
+    selected = frame[frame["market_code"].isin(selected_codes)]
+
+    st.markdown("#### Середня ціна за добу")
+    daily = (
+        selected.groupby(["delivery_date", "market_name"], as_index=False)["price_eur"]
+        .mean()
+        .sort_values("delivery_date")
+    )
+    daily_figure = go.Figure()
+    palette = [AMBER, BLUE, "#58c68d", RED]
+    for color, (market_name, values) in zip(
+        palette, daily.groupby("market_name", sort=True)
+    ):
+        daily_figure.add_trace(
+            go.Scatter(
+                x=values["delivery_date"],
+                y=values["price_eur"],
+                mode="lines",
+                line=dict(color=color, width=2),
+                name=market_name,
+            )
+        )
+    daily_figure.update_layout(**_chart_layout(350, "EUR/МВт·год"))
+    daily_figure.update_xaxes(title="Дата постачання")
+    st.plotly_chart(daily_figure, width="stretch")
+
+    st.markdown(f"#### Погодинне порівняння · {selected_date.strftime('%d.%m.%Y')}")
+    hourly = selected[selected["delivery_date"] == selected_date]
+    if hourly.empty:
+        st.warning("Для вибраної дати немає даних сусідніх ринків.")
+    else:
+        hourly_figure = go.Figure()
+        for color, (market_name, values) in zip(
+            palette, hourly.groupby("market_name", sort=True)
+        ):
+            hourly_figure.add_trace(
+                go.Scatter(
+                    x=values["delivery_start"],
+                    y=values["price_eur"],
+                    mode="lines+markers",
+                    line=dict(color=color, width=2.5),
+                    marker=dict(size=5),
+                    name=market_name,
+                )
+            )
+        hourly_figure.update_layout(**_chart_layout(390, "EUR/МВт·год"))
+        hourly_figure.update_xaxes(title="Година за Києвом", dtick=2 * 60 * 60 * 1000)
+        st.plotly_chart(hourly_figure, width="stretch")
+
+    st.caption(
+        "Європейські 15-хвилинні MTU агрегуються у погодинне середнє та "
+        "вирівнюються за UTC. Українська ціна поки не накладається на цей графік: "
+        "для коректного спреду потрібен історичний курс НБУ на кожну дату."
+    )
+
+
 def main() -> None:
     st.set_page_config(page_title="RDN Market Intelligence", page_icon="⚡", layout="wide")
     _inject_styles()
@@ -612,8 +741,15 @@ def main() -> None:
         st.warning("У вибраному періоді немає даних.")
         return
 
-    overview, history, quality, forecast, monitoring = st.tabs(
-        ["Огляд дня", "Історія", "Якість даних", "Прогноз", "Моніторинг"]
+    overview, history, quality, forecast, monitoring, neighbors = st.tabs(
+        [
+            "Огляд дня",
+            "Історія",
+            "Якість даних",
+            "Прогноз",
+            "Моніторинг",
+            "Сусідні ринки",
+        ]
     )
     with overview:
         _draw_overview(frame, selected_date)
@@ -626,6 +762,8 @@ def main() -> None:
         _draw_forecast(forecast_history, latest)
     with monitoring:
         _draw_forecast_monitoring(settings.database_path)
+    with neighbors:
+        _draw_neighbor_markets(settings.database_path, date_from, date_to, selected_date)
 
 
 if __name__ == "__main__":

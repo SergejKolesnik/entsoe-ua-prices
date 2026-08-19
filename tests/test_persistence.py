@@ -10,14 +10,16 @@ from market_forecast.domain import HourlyMarketPrice
 from market_forecast.persistence import RawArtifactStore, SQLiteMarketRepository
 
 
-def make_price(price: str = "5000.10") -> HourlyMarketPrice:
+def make_price(
+    price: str = "5000.10", bidding_zone: str = "UA-IPS"
+) -> HourlyMarketPrice:
     start = datetime(2026, 8, 18, tzinfo=timezone.utc)
     return HourlyMarketPrice(
         delivery_start_utc=start,
         delivery_end_utc=start + timedelta(hours=1),
         price=Decimal(price),
         currency="UAH",
-        bidding_zone="UA-IPS",
+        bidding_zone=bidding_zone,
         market="day_ahead",
         source="entsoe",
         settlement_period=1,
@@ -207,6 +209,39 @@ class PersistenceTests(unittest.TestCase):
             ]
             with self.assertRaisesRegex(ValueError, "Conflicting immutable forecast"):
                 repository.store_forecast_snapshot(points=changed, **common)
+
+    def test_price_queries_can_isolate_one_bidding_zone(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = SQLiteMarketRepository(root / "market.sqlite3")
+            repository.initialize()
+            artifact = RawArtifactStore(root / "raw").save(
+                b"document", "entsoe", date(2026, 8, 18), "xml"
+            )
+            common = dict(
+                artifact=artifact,
+                source="entsoe",
+                delivery_date=date(2026, 8, 18),
+                source_url="https://example.test/api",
+                content_type="application/xml",
+                fetched_at_utc=datetime(2026, 8, 17, 12, tzinfo=timezone.utc),
+                validation_status="validated",
+            )
+            repository.store_collection(
+                prices=[make_price("50", "PL")], **common
+            )
+            repository.store_collection(
+                prices=[make_price("60", "SK")], **common
+            )
+
+            start = datetime(2026, 8, 18, tzinfo=timezone.utc)
+            end = start + timedelta(days=1)
+
+            self.assertEqual(
+                repository.list_prices("entsoe", start, end, "PL")[0][1],
+                Decimal("50"),
+            )
+            self.assertEqual(repository.available_period("entsoe", "SK")[0], start)
 
 
 if __name__ == "__main__":

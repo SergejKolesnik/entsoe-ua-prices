@@ -7,6 +7,8 @@ import json
 from datetime import date
 from decimal import Decimal
 
+from market_forecast.neighbor_markets import MARKET_BY_CODE
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Create the top-level CLI parser."""
@@ -39,6 +41,18 @@ def build_parser() -> argparse.ArgumentParser:
         "snapshot-baseline",
         help="Freeze the next operational baseline forecast for later scoring.",
     )
+
+    neighbor_backfill = subparsers.add_parser(
+        "backfill-neighbors",
+        help="Collect ENTSO-E DAM prices for configured neighboring EU markets.",
+    )
+    neighbor_backfill.add_argument(
+        "--market", choices=("all", *MARKET_BY_CODE), default="all"
+    )
+    neighbor_backfill.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
+    neighbor_backfill.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
+    neighbor_backfill.add_argument("--delay-seconds", type=float, default=0.5)
+    neighbor_backfill.add_argument("--max-days", type=int, default=366)
 
     backfill = subparsers.add_parser("backfill", help="Collect an inclusive date range.")
     backfill.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
@@ -203,6 +217,49 @@ def main(argv: list[str] | None = None) -> int:
             f"model={result.model_name}@{result.model_version} points={result.points}"
         )
         return 0
+    if args.command == "backfill-neighbors":
+        from market_forecast.config import Settings
+        from market_forecast.persistence import RawArtifactStore, SQLiteMarketRepository
+        from market_forecast.services import MarketCollectionService, run_backfill
+        from market_forecast.sources import EntsoeSource
+
+        settings = Settings.from_environment()
+        source = EntsoeSource(
+            settings.require_entsoe_token(),
+            timeout_seconds=settings.request_timeout_seconds,
+        )
+        service = MarketCollectionService(
+            SQLiteMarketRepository(settings.database_path),
+            RawArtifactStore(settings.raw_data_directory),
+        )
+        markets = (
+            list(MARKET_BY_CODE.values())
+            if args.market == "all"
+            else [MARKET_BY_CODE[args.market]]
+        )
+        failures = 0
+        unpublished = 0
+        for market in markets:
+            results = run_backfill(
+                args.date_from,
+                args.date_to,
+                lambda day, item=market: service.collect_entsoe(
+                    day, source, item.bidding_zone_eic
+                ),
+                delay_seconds=args.delay_seconds,
+                max_days=args.max_days,
+            )
+            market_failures = sum(item.status == "failed" for item in results)
+            market_unpublished = sum(item.status == "unpublished" for item in results)
+            failures += market_failures
+            unpublished += market_unpublished
+            inserted = sum(item.inserted_records for item in results)
+            print(
+                f"{market.code} summary: requested={len(results)} "
+                f"inserted={inserted} failed={market_failures} "
+                f"unpublished={market_unpublished}"
+            )
+        return 1 if failures else 0
     if args.command == "quality":
         from market_forecast.config import Settings
         from market_forecast.persistence import SQLiteMarketRepository

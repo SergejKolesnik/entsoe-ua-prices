@@ -222,31 +222,38 @@ class SQLiteMarketRepository:
         source: str,
         period_start_utc: datetime,
         period_end_utc: datetime,
+        bidding_zone: str | None = None,
     ) -> list[tuple[datetime, Decimal]]:
         """Return ordered price values inside one explicit UTC interval."""
 
         start = _utc_iso(period_start_utc, "period_start_utc")
         end = _utc_iso(period_end_utc, "period_end_utc")
         with closing(self._connect()) as connection:
-            rows = connection.execute(
-                """SELECT delivery_start_utc, price
-                   FROM market_prices
-                   WHERE source = ? AND delivery_start_utc >= ?
-                     AND delivery_start_utc < ?
-                   ORDER BY delivery_start_utc""",
-                (source, start, end),
-            ).fetchall()
+            query = """SELECT delivery_start_utc, price
+                       FROM market_prices
+                       WHERE source = ? AND delivery_start_utc >= ?
+                         AND delivery_start_utc < ?"""
+            parameters: list[str] = [source, start, end]
+            if bidding_zone is not None:
+                query += " AND bidding_zone = ?"
+                parameters.append(bidding_zone)
+            query += " ORDER BY delivery_start_utc"
+            rows = connection.execute(query, parameters).fetchall()
         return [(_parse_utc(row[0]), Decimal(row[1])) for row in rows]
 
-    def available_period(self, source: str) -> tuple[datetime, datetime] | None:
+    def available_period(
+        self, source: str, bidding_zone: str | None = None
+    ) -> tuple[datetime, datetime] | None:
         """Return the earliest and latest stored delivery timestamps for a source."""
 
         with closing(self._connect()) as connection:
-            row = connection.execute(
-                """SELECT MIN(delivery_start_utc), MAX(delivery_start_utc)
-                   FROM market_prices WHERE source = ?""",
-                (source,),
-            ).fetchone()
+            query = """SELECT MIN(delivery_start_utc), MAX(delivery_start_utc)
+                       FROM market_prices WHERE source = ?"""
+            parameters = [source]
+            if bidding_zone is not None:
+                query += " AND bidding_zone = ?"
+                parameters.append(bidding_zone)
+            row = connection.execute(query, parameters).fetchone()
         if row is None or row[0] is None or row[1] is None:
             return None
         return _parse_utc(row[0]), _parse_utc(row[1])

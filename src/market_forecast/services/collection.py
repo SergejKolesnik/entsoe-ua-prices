@@ -49,7 +49,12 @@ class MarketCollectionService:
         ).astimezone(timezone.utc)
         raw = source.fetch_day_ahead_prices(period_start, period_end, bidding_zone_eic)
         records = parse_price_document(raw.content)
-        validate_delivery_periods(records, expected_periods=int((period_end - period_start).total_seconds() // 3600))
+        validate_delivery_periods(records)
+        if (
+            records[0].delivery_start_utc != period_start
+            or records[-1].delivery_end_utc != period_end
+        ):
+            raise ValueError("ENTSO-E prices do not cover the requested delivery day")
         artifact = self.artifact_store.save(raw.content, "entsoe", delivery_date, "xml")
         self.repository.initialize()
         _, inserted = self.repository.store_collection(

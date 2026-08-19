@@ -40,9 +40,13 @@ def parse_price_document(xml_content: bytes) -> list[HourlyMarketPrice]:
             start = _parse_datetime(_text(period, "timeInterval/start", namespace))
             end = _parse_datetime(_text(period, "timeInterval/end", namespace))
             resolution = _parse_duration(_text(period, "resolution", namespace))
-            if resolution != timedelta(hours=1):
+            if resolution not in {
+                timedelta(minutes=15),
+                timedelta(minutes=30),
+                timedelta(hours=1),
+            }:
                 raise ValueError(
-                    f"Expected hourly ENTSO-E price resolution, received {resolution}"
+                    f"Unsupported ENTSO-E price resolution: {resolution}"
                 )
             if end <= start:
                 raise ValueError("ENTSO-E period end must be after start")

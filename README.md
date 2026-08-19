@@ -104,6 +104,19 @@ python -m market_forecast.cli snapshot-baseline
 
 The **Моніторинг** tab compares each frozen hourly vintage with facts only after they arrive. It shows forecast coverage, observed MAE/RMSE, the original P80 band, and a permanent run journal. Repeated scheduler attempts return the existing identical snapshot; they never rewrite a forecast after the fact.
 
+## Neighboring EU markets
+
+The **Сусідні ринки** tab is prepared for Poland, Slovakia, Hungary, and Romania using their verified ENTSO-E bidding-zone identities. Configure a newly issued personal token, then run a controlled backfill:
+
+```powershell
+$env:ENTSOE_TOKEN = "new-token"
+python -m market_forecast.cli backfill-neighbors --market all --from 2025-08-19 --to 2026-08-20
+```
+
+Individual market codes are `PL`, `SK`, `HU`, and `RO`. ENTSO-E raw documents remain immutable and normalized rows remain isolated by bidding zone. Since European SDAC moved to a 15-minute market time unit for delivery from 1 October 2025, the parser accepts validated 15/30/60-minute intervals; the UI averages complete sub-hourly groups into aligned UTC hours for comparison with Ukraine. See the official [ENTSO-E SDAC implementation timeline](https://www.entsoe.eu/network_codes/cacm/implementation/sdac/) and [Transparency Platform extraction guide](https://transparency.entsoe.eu/content/static_content/download?path=%2FStatic+content%2Fweb+api%2FIG-for-TP-data-extraction-process.pdf).
+
+Neighbor prices remain in EUR/MWh. The Ukrainian curve and cross-border spread are intentionally not converted until an effective-dated official NBU exchange-rate source is implemented. Moldova is also excluded from this first adapter because a stable ENTSO-E day-ahead bidding-zone price feed has not yet been verified.
+
 ## Data-source responsibilities
 
 - `OperatorMarketSource` discovers published results and returns raw source metadata.

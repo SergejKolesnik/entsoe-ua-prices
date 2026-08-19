@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from market_forecast.parsers import parse_price_document
@@ -52,11 +52,20 @@ class EntsoeXmlTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "outside"):
             parse_price_document(xml)
 
-    def test_rejects_non_hourly_resolution(self):
-        xml = build_document([(1, "5000")]).replace(b"PT60M", b"PT15M")
+    def test_parses_quarter_hour_resolution(self):
+        xml = build_document(
+            [(1, "50"), (2, "60"), (3, "70"), (4, "80")],
+            end="2026-08-18T01:00Z",
+        ).replace(b"PT60M", b"PT15M")
 
-        with self.assertRaisesRegex(ValueError, "Expected hourly"):
-            parse_price_document(xml)
+        records = parse_price_document(xml)
+
+        self.assertEqual(len(records), 4)
+        self.assertEqual(
+            records[0].delivery_end_utc - records[0].delivery_start_utc,
+            timedelta(minutes=15),
+        )
+        validate_delivery_periods(records, expected_periods=4)
 
     def test_parsed_records_can_be_validated(self):
         records = parse_price_document(build_document([(1, "5000"), (2, "5100")]))
