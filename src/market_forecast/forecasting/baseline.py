@@ -87,10 +87,16 @@ def build_day_forecast(
                     samples.append(value)
         if method == "previous_day" or len(samples) < minimum_weekday_samples:
             if previous is None:
+                previous = _latest_prior_hour(history, target_date, *key)
+            if previous is None:
                 delivery_start += timedelta(hours=1)
                 continue
             prediction = previous
-            point_method = "previous_day"
+            point_method = (
+                "previous_day"
+                if history.get((target_date - timedelta(days=1), *key)) is not None
+                else "recent_hour"
+            )
             sample_count = 1
         else:
             prediction = Decimal(str(median(samples)))
@@ -166,6 +172,24 @@ def _lookup_hour(
     if value is None and fold == 1:
         return history.get((delivery_date, hour, 0))
     return value
+
+
+def _latest_prior_hour(
+    history: dict[tuple[date, int, int], Decimal],
+    target_date: date,
+    hour: int,
+    fold: int,
+) -> Decimal | None:
+    """Find the most recent available matching hour for DST or source gaps."""
+
+    matching = [
+        (delivery_date, value)
+        for (delivery_date, stored_hour, stored_fold), value in history.items()
+        if delivery_date < target_date
+        and stored_hour == hour
+        and (stored_fold == fold or fold == 1 and stored_fold == 0)
+    ]
+    return max(matching, default=(None, None), key=lambda item: item[0])[1]
 
 
 def _metrics(

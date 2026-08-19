@@ -83,3 +83,18 @@ class ForecastingBaselineTests(TestCase):
         ]
         self.assertEqual(len(repeated), 2)
         self.assertEqual({item.fold for item in repeated}, {0, 1})
+
+    def test_day_after_spring_dst_uses_latest_available_missing_hour(self):
+        target = date(2026, 3, 30)
+        rows = make_history(target - timedelta(days=14), 14)
+
+        forecast = build_day_forecast(rows, target, method="previous_day")
+
+        self.assertEqual(len(forecast), 24)
+        hour_three = [
+            item
+            for item in forecast
+            if item.delivery_start_utc.astimezone(KYIV).hour == 3
+        ]
+        self.assertEqual(len(hour_three), 1)
+        self.assertEqual(hour_three[0].method, "recent_hour")
