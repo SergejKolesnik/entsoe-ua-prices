@@ -644,7 +644,9 @@ def _load_cross_border_flows(
             "direction": direction,
             "power_mw": abs(float(power_mw)),
             "energy_mwh": abs(float(power_mw)) * interval_hours,
+            "interval_hours": interval_hours,
             "net_import_mw": signed_power,
+            "net_import_mwh": signed_power * interval_hours,
         })
     return pd.DataFrame(records)
 
@@ -818,7 +820,25 @@ def _draw_neighbor_markets(
     if flow_frame.empty:
         st.info("Дані фізичних перетоків ще не завантажено.")
     else:
-        daily_flows = flow_frame.copy()
+        coverage = flow_frame.groupby(
+            ["delivery_date", "market_name", "direction"], as_index=False
+        )["interval_hours"].sum()
+        complete_dates = coverage.groupby("delivery_date").filter(
+            lambda group: len(group) == len(NEIGHBOR_MARKETS) * 2
+            and (group["interval_hours"] >= 23.99).all()
+        )["delivery_date"].unique()
+        excluded_dates = sorted(set(flow_frame["delivery_date"]) - set(complete_dates))
+        daily_flows = flow_frame[flow_frame["delivery_date"].isin(complete_dates)].copy()
+        if excluded_dates:
+            st.warning(
+                "Не показано неповні доби перетоків: "
+                + ", ".join(day.strftime("%d.%m.%Y") for day in excluded_dates)
+                + ". ENTSO-E має пропуски хоча б на одному кордоні або напрямку."
+            )
+        if daily_flows.empty:
+            st.info("Немає жодної доби з повним покриттям усіх напрямків.")
+            return
+        complete_flow_rows = daily_flows.copy()
         daily_flows = daily_flows.groupby(
             ["delivery_date", "direction"], as_index=False
         )["energy_mwh"].sum()
@@ -834,6 +854,29 @@ def _draw_neighbor_markets(
         flow_figure.update_layout(**_chart_layout(330, "МВт·год"), barmode="relative")
         flow_figure.update_xaxes(title="Дата постачання")
         st.plotly_chart(flow_figure, width="stretch")
+        ukrainian_hourly = frame[frame["market_code"] == "UA"][
+            ["delivery_start", "price_eur"]
+        ].copy()
+        flow_hourly = complete_flow_rows.copy()
+        flow_hourly["delivery_start"] = flow_hourly["delivery_start"].dt.floor("h")
+        flow_hourly = flow_hourly.groupby("delivery_start", as_index=False)[
+            "net_import_mwh"
+        ].sum()
+        aligned_flow = ukrainian_hourly.merge(flow_hourly, on="delivery_start", how="inner")
+        if len(aligned_flow) >= 24:
+            price_flow_correlation = aligned_flow["price_eur"].corr(
+                aligned_flow["net_import_mwh"]
+            )
+            metric_columns = st.columns(2)
+            metric_columns[0].metric(
+                "Кореляція ціна ↔ чистий імпорт",
+                f"{price_flow_correlation:.3f}",
+            )
+            metric_columns[1].metric("Спільних годин", f"{len(aligned_flow)}")
+            st.caption(
+                "Додатне значення означає, що в цій вибірці вища ціна частіше "
+                "співпадала з більшим чистим імпортом; це не доводить напрям причинності."
+            )
 
     st.caption(
         "Європейські 15-хвилинні MTU агрегуються у погодинне середнє та "

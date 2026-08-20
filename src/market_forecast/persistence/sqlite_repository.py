@@ -347,6 +347,61 @@ class SQLiteMarketRepository:
             ).fetchall()
         return [(_parse_utc(row[0]), Decimal(row[1]) if row[1] is not None else None) for row in rows]
 
+    def list_latest_artifact_paths(self, source: str) -> list[tuple[date, Path]]:
+        """Return the newest validated raw artifact path for each delivery day."""
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT artifact.delivery_date, artifact.local_path
+                   FROM raw_artifacts AS artifact
+                   JOIN (
+                       SELECT delivery_date, MAX(id) AS latest_id
+                       FROM raw_artifacts
+                       WHERE source = ? AND validation_status = 'validated'
+                       GROUP BY delivery_date
+                   ) AS latest ON latest.latest_id = artifact.id
+                   ORDER BY artifact.delivery_date""",
+                (source,),
+            ).fetchall()
+        return [(date.fromisoformat(row[0]), Path(row[1])) for row in rows]
+
+    def enrich_price_volumes(self, prices: Iterable[HourlyMarketPrice]) -> int:
+        """Fill missing volumes only when the stored price identity still matches."""
+
+        updated = 0
+        with closing(self._connect()) as connection, connection:
+            for item in prices:
+                if item.volume_mwh is None:
+                    continue
+                row = connection.execute(
+                    """SELECT price, currency, volume_mwh FROM market_prices
+                       WHERE source = ? AND market = ? AND bidding_zone = ?
+                         AND delivery_start_utc = ?""",
+                    (
+                        item.source, item.market, item.bidding_zone,
+                        _utc_iso(item.delivery_start_utc, "delivery_start_utc"),
+                    ),
+                ).fetchone()
+                if row is None:
+                    raise ValueError("Cannot enrich volume without a stored market price")
+                if Decimal(row[0]) != item.price or row[1] != item.currency:
+                    raise ValueError("Cannot enrich volume for a conflicting market price")
+                if row[2] is None:
+                    cursor = connection.execute(
+                        """UPDATE market_prices SET volume_mwh = ?
+                           WHERE source = ? AND market = ? AND bidding_zone = ?
+                             AND delivery_start_utc = ? AND volume_mwh IS NULL""",
+                        (
+                            str(item.volume_mwh), item.source, item.market,
+                            item.bidding_zone,
+                            _utc_iso(item.delivery_start_utc, "delivery_start_utc"),
+                        ),
+                    )
+                    updated += cursor.rowcount
+                elif Decimal(row[2]) != item.volume_mwh:
+                    raise ValueError("Stored market volume conflicts with the official artifact")
+        return updated
+
     def count_prices(self) -> int:
         """Return the current normalized price row count."""
 

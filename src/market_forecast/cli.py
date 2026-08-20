@@ -70,6 +70,11 @@ def build_parser() -> argparse.ArgumentParser:
     fx_backfill.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
     fx_backfill.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
 
+    subparsers.add_parser(
+        "enrich-operator-volumes",
+        help="Fill missing DAM volumes from already stored Operator workbooks.",
+    )
+
     backfill = subparsers.add_parser("backfill", help="Collect an inclusive date range.")
     backfill.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
     backfill.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
@@ -290,6 +295,28 @@ def main(argv: list[str] | None = None) -> int:
         changed = repository.store_exchange_rates(rates, datetime.now(timezone.utc))
         print(f"NBU EUR rates: received={len(rates)} stored={changed}")
         return 0
+    if args.command == "enrich-operator-volumes":
+        from market_forecast.config import Settings
+        from market_forecast.parsers import parse_operator_market_workbook
+        from market_forecast.persistence import SQLiteMarketRepository
+
+        settings = Settings.from_environment()
+        repository = SQLiteMarketRepository(settings.database_path)
+        repository.initialize()
+        updated = 0
+        failed = 0
+        artifacts = repository.list_latest_artifact_paths("operator_market")
+        for delivery_date, path in artifacts:
+            try:
+                records = parse_operator_market_workbook(path.read_bytes(), delivery_date)
+                updated += repository.enrich_price_volumes(records)
+            except (OSError, ValueError):
+                failed += 1
+        print(
+            f"Operator volume enrichment: days={len(artifacts)} "
+            f"updated={updated} failed={failed}"
+        )
+        return 1 if failed else 0
     if args.command == "backfill-flows":
         from market_forecast.config import Settings
         from market_forecast.persistence import RawArtifactStore, SQLiteMarketRepository

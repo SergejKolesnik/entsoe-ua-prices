@@ -118,6 +118,7 @@ Load official NBU EUR rates and directed ENTSO-E physical flows for the same per
 ```powershell
 python -m market_forecast.cli backfill-fx --from 2025-08-19 --to 2026-08-20
 python -m market_forecast.cli backfill-flows --market all --from 2025-08-19 --to 2026-08-20
+python -m market_forecast.cli enrich-operator-volumes
 ```
 
 The comparison tab converts the Ukrainian DAM price to EUR only for analytics; the stored
@@ -125,6 +126,8 @@ Operator Market price remains in UAH. Physical flows are stored as directed aver
 converted to MWh using each record's actual interval duration. The Operator workbook's
 accepted sale volume is stored in `volume_mwh` only after validating that accepted purchase
 and sale volumes are equal.
+Days with incomplete physical-flow coverage on any configured border or direction are
+explicitly excluded from aggregate import/export and price-flow correlation metrics.
 
 Individual market codes are `PL`, `SK`, `HU`, and `RO`. ENTSO-E raw documents remain immutable and normalized rows remain isolated by bidding zone. Since European SDAC moved to a 15-minute market time unit for delivery from 1 October 2025, the parser accepts validated 15/30/60-minute intervals; the UI averages complete sub-hourly groups into aligned UTC hours for comparison with Ukraine. See the official [ENTSO-E SDAC implementation timeline](https://www.entsoe.eu/network_codes/cacm/implementation/sdac/) and [Transparency Platform extraction guide](https://transparency.entsoe.eu/content/static_content/download?path=%2FStatic+content%2Fweb+api%2FIG-for-TP-data-extraction-process.pdf).
 

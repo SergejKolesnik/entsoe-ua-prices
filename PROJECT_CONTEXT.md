@@ -48,8 +48,11 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
 ## Next priorities
 
 1. Accumulate at least 14–30 real frozen forecasts and monitor operational stability.
-2. Extend the validated three-day neighbor/flow/FX sample into a staged historical backfill,
-   then include those refreshes in the local scheduler.
+2. Continue the staged history from the validated baseline: 30 days of neighbor prices,
+   366 NBU EUR rates, 367 days of Ukrainian prices/volumes, and six fully covered flow days.
+   One incomplete ENTSO-E Poland export day is intentionally excluded from aggregates.
+3. Add resumable scheduled refreshes for neighbor prices, NBU rates, operator volumes, and
+   completed physical-flow days before extending flow history in larger batches.
 3. Add official historical NBU rates for currency-normalized Ukrainian spreads.
 4. Add effective-dated price caps and calendar features as a separate shadow candidate.
 5. Add regression fixtures for documented 23/25-period operator days when available.
