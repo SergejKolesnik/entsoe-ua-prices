@@ -983,6 +983,83 @@ def _draw_neighbor_markets(
         flow_figure.update_layout(**_chart_layout(330, "МВт·год"), barmode="relative")
         flow_figure.update_xaxes(title="Дата постачання")
         st.plotly_chart(flow_figure, width="stretch")
+
+        complete_date_list = sorted(complete_dates)
+        eligible_flow_dates = [day for day in complete_date_list if day <= selected_date]
+        hourly_flow_date = (
+            eligible_flow_dates[-1] if eligible_flow_dates else complete_date_list[-1]
+        )
+        hourly_flows = complete_flow_rows[
+            complete_flow_rows["delivery_date"] == hourly_flow_date
+        ].copy()
+        hourly_flows["hour"] = hourly_flows["delivery_start"].dt.hour
+        hourly_flows = hourly_flows.groupby(
+            ["hour", "direction"], as_index=False
+        )["energy_mwh"].sum()
+        flow_profile = hourly_flows.pivot_table(
+            index="hour", columns="direction", values="energy_mwh", fill_value=0
+        ).reindex(range(24), fill_value=0)
+        imports = flow_profile.get("Імпорт", pd.Series(0, index=flow_profile.index))
+        exports = flow_profile.get("Експорт", pd.Series(0, index=flow_profile.index))
+        net_import = imports - exports
+
+        st.markdown(
+            f"#### Погодинний профіль перетоків · "
+            f"{hourly_flow_date.strftime('%d.%m.%Y')}"
+        )
+        hourly_flow_figure = go.Figure()
+        hourly_flow_figure.add_trace(
+            go.Bar(
+                x=flow_profile.index,
+                y=imports,
+                name="Імпорт",
+                marker_color="#58c68d",
+                hovertemplate="%{x}:00 · імпорт %{y:,.0f} МВт·год<extra></extra>",
+            )
+        )
+        hourly_flow_figure.add_trace(
+            go.Bar(
+                x=flow_profile.index,
+                y=-exports,
+                name="Експорт",
+                marker_color=RED,
+                hovertemplate="%{x}:00 · експорт %{customdata:,.0f} МВт·год<extra></extra>",
+                customdata=exports,
+            )
+        )
+        hourly_flow_figure.add_trace(
+            go.Scatter(
+                x=flow_profile.index,
+                y=net_import,
+                name="Чистий імпорт",
+                mode="lines+markers",
+                line=dict(color=AMBER, width=2.5),
+                marker=dict(size=4),
+                hovertemplate="%{x}:00 · баланс %{y:,.0f} МВт·год<extra></extra>",
+            )
+        )
+        hourly_layout = _chart_layout(360, "МВт·год")
+        hourly_layout.update(
+            barmode="relative",
+            legend=dict(orientation="h", y=1.12),
+        )
+        hourly_flow_figure.update_layout(**hourly_layout)
+        hourly_flow_figure.update_xaxes(
+            title="Година за Києвом", tickmode="linear", dtick=2, range=[-0.5, 23.5]
+        )
+        st.plotly_chart(hourly_flow_figure, width="stretch")
+        if hourly_flow_date != selected_date:
+            st.caption(
+                f"За {selected_date.strftime('%d.%m.%Y')} повні перетоки ще не "
+                f"опубліковані, тому показано останню повну добу — "
+                f"{hourly_flow_date.strftime('%d.%m.%Y')}."
+            )
+        st.caption(
+            "Зелений стовпчик — сумарний імпорт, червоний нижче нуля — експорт, "
+            "жовта лінія — погодинний баланс. 15-хвилинні значення Польщі "
+            "підсумовуються до відповідної години."
+        )
+
         ukrainian_hourly = frame[frame["market_code"] == "UA"][
             ["delivery_start", "price_eur"]
         ].copy()
