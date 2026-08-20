@@ -79,6 +79,8 @@ Streamlit prints the local browser address, normally `http://localhost:8501`. Th
 
 `DATABASE_URL` is a secret. Configure it only in the Windows user environment, GitHub Actions secrets, or Streamlit secrets; never commit it to Git. SQLite remains the automatic local fallback when the variable is absent.
 
+The one-time `scripts/migrate_sqlite_to_postgres.py` command defaults to a read-only plan. Its `--apply` mode refuses a non-empty destination, copies everything in one transaction, and verifies row counts and relationships before committing. If `DATABASE_URL` is absent, it requests the connection string through hidden terminal input.
+
 The baseline is selected only by chronological walk-forward results. It compares the median of up to four prior matching weekdays against the previous-day hourly profile, uses no observation from or after a historical forecast cutoff, and displays the lower-MAE method. The uncertainty band is the 80th percentile of historical absolute errors, not a guaranteed confidence interval. This is an auditable research baseline rather than a claim of production-grade accuracy.
 
 ## Automatic daily refresh
