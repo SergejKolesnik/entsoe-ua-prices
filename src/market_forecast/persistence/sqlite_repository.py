@@ -9,7 +9,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Iterable
 
-from market_forecast.domain import HourlyMarketPrice
+from market_forecast.domain import CrossBorderFlow, HourlyMarketPrice
 from market_forecast.persistence.raw_artifacts import StoredArtifact
 
 
@@ -59,6 +59,31 @@ class SQLiteMarketRepository:
 
                 CREATE INDEX IF NOT EXISTS idx_market_prices_delivery
                 ON market_prices (delivery_start_utc, bidding_zone, market);
+
+                CREATE TABLE IF NOT EXISTS exchange_rates (
+                    effective_date TEXT NOT NULL,
+                    currency TEXT NOT NULL,
+                    rate_uah_per_unit TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    fetched_at_utc TEXT NOT NULL,
+                    PRIMARY KEY (effective_date, currency, source)
+                );
+
+                CREATE TABLE IF NOT EXISTS cross_border_flows (
+                    id INTEGER PRIMARY KEY,
+                    delivery_start_utc TEXT NOT NULL,
+                    delivery_end_utc TEXT NOT NULL,
+                    source_zone TEXT NOT NULL,
+                    target_zone TEXT NOT NULL,
+                    power_mw TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    source_revision TEXT,
+                    ingested_at_utc TEXT NOT NULL,
+                    UNIQUE (source, source_zone, target_zone, delivery_start_utc)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_cross_border_flows_delivery
+                ON cross_border_flows (delivery_start_utc, source_zone, target_zone);
 
                 CREATE TABLE IF NOT EXISTS collection_attempts (
                     id INTEGER PRIMARY KEY,
@@ -204,11 +229,123 @@ class SQLiteMarketRepository:
                         str(item.volume_mwh) if item.volume_mwh is not None else None,
                         item.source_revision,
                     )
-                    if existing != expected:
+                    if existing != expected and existing[:4] == expected[:4] and existing[4] is None:
+                        connection.execute(
+                            """UPDATE market_prices
+                               SET volume_mwh = ?, source_revision = COALESCE(?, source_revision)
+                               WHERE source = ? AND market = ? AND bidding_zone = ?
+                                 AND delivery_start_utc = ?""",
+                            (
+                                expected[4], expected[5], item.source, item.market,
+                                item.bidding_zone,
+                                _utc_iso(item.delivery_start_utc, "delivery_start_utc"),
+                            ),
+                        )
+                    elif existing != expected:
                         raise ValueError(
                             "Conflicting market price already exists for the same source interval"
                         )
         return artifact_id, inserted
+
+    def store_exchange_rates(
+        self, rates: dict[date, Decimal], fetched_at_utc: datetime
+    ) -> int:
+        """Upsert official NBU EUR rates without changing market-price rows."""
+
+        fetched_at = _utc_iso(fetched_at_utc, "fetched_at_utc")
+        self.initialize()
+        changed = 0
+        with closing(self._connect()) as connection, connection:
+            for effective_date, rate in rates.items():
+                cursor = connection.execute(
+                    """INSERT INTO exchange_rates (
+                           effective_date, currency, rate_uah_per_unit, source, fetched_at_utc
+                       ) VALUES (?, 'EUR', ?, 'nbu', ?)
+                       ON CONFLICT(effective_date, currency, source) DO UPDATE SET
+                           rate_uah_per_unit = excluded.rate_uah_per_unit,
+                           fetched_at_utc = excluded.fetched_at_utc""",
+                    (effective_date.isoformat(), str(rate), fetched_at),
+                )
+                changed += cursor.rowcount
+        return changed
+
+    def list_exchange_rates(self, date_from: date, date_to: date) -> dict[date, Decimal]:
+        """Return stored official EUR rates for an inclusive range."""
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT effective_date, rate_uah_per_unit FROM exchange_rates
+                   WHERE currency = 'EUR' AND source = 'nbu'
+                     AND effective_date >= ? AND effective_date <= ?
+                   ORDER BY effective_date""",
+                (date_from.isoformat(), date_to.isoformat()),
+            ).fetchall()
+        return {date.fromisoformat(row[0]): Decimal(row[1]) for row in rows}
+
+    def store_flows(self, flows: Iterable[CrossBorderFlow], fetched_at_utc: datetime) -> int:
+        """Idempotently persist normalized ENTSO-E physical flows."""
+
+        fetched_at = _utc_iso(fetched_at_utc, "fetched_at_utc")
+        self.initialize()
+        inserted = 0
+        with closing(self._connect()) as connection, connection:
+            for flow in flows:
+                cursor = connection.execute(
+                    """INSERT INTO cross_border_flows (
+                           delivery_start_utc, delivery_end_utc, source_zone,
+                           target_zone, power_mw, source, source_revision, ingested_at_utc
+                       ) VALUES (?, ?, ?, ?, ?, 'entsoe', ?, ?)
+                       ON CONFLICT(source, source_zone, target_zone, delivery_start_utc)
+                       DO UPDATE SET power_mw = excluded.power_mw,
+                                     delivery_end_utc = excluded.delivery_end_utc,
+                                     source_revision = excluded.source_revision,
+                                     ingested_at_utc = excluded.ingested_at_utc""",
+                    (
+                        _utc_iso(flow.delivery_start_utc, "delivery_start_utc"),
+                        _utc_iso(flow.delivery_end_utc, "delivery_end_utc"),
+                        flow.source_zone, flow.target_zone, str(flow.power_mw),
+                        flow.source_revision, fetched_at,
+                    ),
+                )
+                inserted += cursor.rowcount
+        return inserted
+
+    def list_flows(
+        self, period_start_utc: datetime, period_end_utc: datetime
+    ) -> list[tuple[datetime, datetime, str, str, Decimal]]:
+        """Return physical flows inside one UTC interval."""
+
+        start = _utc_iso(period_start_utc, "period_start_utc")
+        end = _utc_iso(period_end_utc, "period_end_utc")
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT delivery_start_utc, delivery_end_utc,
+                          source_zone, target_zone, power_mw
+                   FROM cross_border_flows
+                   WHERE delivery_start_utc >= ? AND delivery_start_utc < ?
+                   ORDER BY delivery_start_utc, source_zone, target_zone""",
+                (start, end),
+            ).fetchall()
+        return [
+            (_parse_utc(row[0]), _parse_utc(row[1]), row[2], row[3], Decimal(row[4]))
+            for row in rows
+        ]
+
+    def list_price_volumes(
+        self, source: str, period_start_utc: datetime, period_end_utc: datetime
+    ) -> list[tuple[datetime, Decimal | None]]:
+        """Return ordered accepted market volumes alongside timestamps."""
+
+        start = _utc_iso(period_start_utc, "period_start_utc")
+        end = _utc_iso(period_end_utc, "period_end_utc")
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT delivery_start_utc, volume_mwh FROM market_prices
+                   WHERE source = ? AND delivery_start_utc >= ? AND delivery_start_utc < ?
+                   ORDER BY delivery_start_utc""",
+                (source, start, end),
+            ).fetchall()
+        return [(_parse_utc(row[0]), Decimal(row[1]) if row[1] is not None else None) for row in rows]
 
     def count_prices(self) -> int:
         """Return the current normalized price row count."""

@@ -575,6 +575,23 @@ def _load_neighbor_prices(
         timezone.utc
     )
     records = []
+    rates = repository.list_exchange_rates(date_from, date_to)
+    ukrainian_rows = repository.list_prices("operator_market", start, end)
+    for timestamp, price in ukrainian_rows:
+        local = timestamp.astimezone(KYIV)
+        rate = rates.get(local.date())
+        if rate is None:
+            continue
+        records.append(
+            {
+                "delivery_start": local,
+                "delivery_date": local.date(),
+                "hour": local.hour,
+                "market_code": "UA",
+                "market_name": "Україна",
+                "price_eur": float(price / rate),
+            }
+        )
     for market in NEIGHBOR_MARKETS:
         raw_rows = repository.list_prices(
             "entsoe", start, end, bidding_zone=market.bidding_zone_eic
@@ -594,6 +611,79 @@ def _load_neighbor_prices(
                 }
             )
     return pd.DataFrame(records)
+
+
+@st.cache_data(ttl=60)
+def _load_cross_border_flows(
+    database_path: str, date_from: date, date_to: date
+) -> pd.DataFrame:
+    repository = SQLiteMarketRepository(Path(database_path))
+    repository.initialize()
+    start = datetime.combine(date_from, time.min, KYIV).astimezone(timezone.utc)
+    end = datetime.combine(date_to + timedelta(days=1), time.min, KYIV).astimezone(timezone.utc)
+    ukraine_zone = "10Y1001C--00003F"
+    market_by_eic = {market.bidding_zone_eic: market for market in NEIGHBOR_MARKETS}
+    records = []
+    for timestamp, interval_end, source_zone, target_zone, power_mw in repository.list_flows(start, end):
+        if target_zone == ukraine_zone and source_zone in market_by_eic:
+            direction = "Імпорт"
+            market = market_by_eic[source_zone]
+            signed_power = float(power_mw)
+        elif source_zone == ukraine_zone and target_zone in market_by_eic:
+            direction = "Експорт"
+            market = market_by_eic[target_zone]
+            signed_power = -float(power_mw)
+        else:
+            continue
+        local = timestamp.astimezone(KYIV)
+        interval_hours = (interval_end - timestamp).total_seconds() / 3600
+        records.append({
+            "delivery_start": local,
+            "delivery_date": local.date(),
+            "market_name": market.name_uk,
+            "direction": direction,
+            "power_mw": abs(float(power_mw)),
+            "energy_mwh": abs(float(power_mw)) * interval_hours,
+            "net_import_mw": signed_power,
+        })
+    return pd.DataFrame(records)
+
+
+def _draw_market_volume(database_path: Path, selected_date: date) -> None:
+    repository = SQLiteMarketRepository(database_path)
+    start = datetime.combine(selected_date, time.min, KYIV).astimezone(timezone.utc)
+    end = datetime.combine(selected_date + timedelta(days=1), time.min, KYIV).astimezone(timezone.utc)
+    volume_rows = repository.list_price_volumes(SOURCE, start, end)
+    available = [(timestamp, value) for timestamp, value in volume_rows if value is not None]
+    if not available:
+        st.caption("Обсяг продажу РДН для цього дня ще не завантажено.")
+        return
+    prices = dict(repository.list_prices(SOURCE, start, end))
+    figure = go.Figure()
+    figure.add_trace(go.Bar(
+        x=[timestamp.astimezone(KYIV) for timestamp, _ in available],
+        y=[float(value) for _, value in available],
+        name="Обсяг продажу",
+        marker_color=BLUE,
+        opacity=0.55,
+        yaxis="y",
+    ))
+    figure.add_trace(go.Scatter(
+        x=[timestamp.astimezone(KYIV) for timestamp, _ in available],
+        y=[float(prices[timestamp]) for timestamp, _ in available],
+        name="Ціна РДН",
+        line=dict(color=AMBER, width=3),
+        yaxis="y2",
+    ))
+    layout = _chart_layout(360, "МВт·год")
+    layout.update(
+        yaxis2=dict(title="грн/МВт·год", overlaying="y", side="right", showgrid=False),
+        legend=dict(orientation="h", y=1.12),
+    )
+    figure.update_layout(**layout)
+    figure.update_xaxes(title="Година за Києвом")
+    st.markdown("#### Ціна та обсяг продажу РДН")
+    st.plotly_chart(figure, width="stretch")
 
 
 def _draw_neighbor_markets(
@@ -620,18 +710,25 @@ def _draw_neighbor_markets(
         )
         return
 
+    market_names = {"UA": "Україна"} | {
+        market.code: market.name_uk for market in NEIGHBOR_MARKETS
+    }
     available_codes = [
+        "UA",
+        *[
         market.code
         for market in NEIGHBOR_MARKETS
+        if market.code in set(frame["market_code"])
+        ],
+    ] if "UA" in set(frame["market_code"]) else [
+        market.code for market in NEIGHBOR_MARKETS
         if market.code in set(frame["market_code"])
     ]
     selected_codes = st.multiselect(
         "Ринки",
         options=available_codes,
         default=available_codes,
-        format_func=lambda code: next(
-            market.name_uk for market in NEIGHBOR_MARKETS if market.code == code
-        ),
+        format_func=lambda code: market_names[code],
     )
     if not selected_codes:
         st.info("Виберіть хоча б один ринок.")
@@ -645,7 +742,7 @@ def _draw_neighbor_markets(
         .sort_values("delivery_date")
     )
     daily_figure = go.Figure()
-    palette = [AMBER, BLUE, "#58c68d", RED]
+    palette = [AMBER, BLUE, "#58c68d", RED, "#b58cff"]
     for color, (market_name, values) in zip(
         palette, daily.groupby("market_name", sort=True)
     ):
@@ -685,10 +782,63 @@ def _draw_neighbor_markets(
         hourly_figure.update_xaxes(title="Година за Києвом", dtick=2 * 60 * 60 * 1000)
         st.plotly_chart(hourly_figure, width="stretch")
 
+    if "UA" in set(selected_codes):
+        st.markdown("#### Зв’язок з українською ціною")
+        pivot = selected.pivot_table(
+            index="delivery_start", columns="market_code", values="price_eur", aggfunc="mean"
+        )
+        relationship_rows = []
+        for code in selected_codes:
+            if code == "UA" or code not in pivot.columns:
+                continue
+            aligned = pivot[["UA", code]].dropna()
+            relationship_rows.append({
+                "Ринок": market_names[code],
+                "Спільних годин": len(aligned),
+                "Кореляція цін": aligned["UA"].corr(aligned[code]) if len(aligned) >= 24 else None,
+                "Середній спред Україна − ринок": (aligned["UA"] - aligned[code]).mean() if not aligned.empty else None,
+            })
+        if relationship_rows:
+            st.dataframe(
+                pd.DataFrame(relationship_rows),
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "Кореляція цін": st.column_config.NumberColumn(format="%.3f"),
+                    "Середній спред Україна − ринок": st.column_config.NumberColumn(format="%.2f EUR/МВт·год"),
+                },
+            )
+            st.caption(
+                "Кореляція показує спільний рух цін, але сама по собі не доводить причинний вплив. "
+                "Для стійкого висновку потрібна довша історія та контроль перетоків, попиту й сезонності."
+            )
+
+    flow_frame = _load_cross_border_flows(str(database_path), date_from, date_to)
+    st.markdown("#### Фізичний імпорт та експорт")
+    if flow_frame.empty:
+        st.info("Дані фізичних перетоків ще не завантажено.")
+    else:
+        daily_flows = flow_frame.copy()
+        daily_flows = daily_flows.groupby(
+            ["delivery_date", "direction"], as_index=False
+        )["energy_mwh"].sum()
+        flow_figure = go.Figure()
+        for direction, color, sign in (("Імпорт", "#58c68d", 1), ("Експорт", RED, -1)):
+            values = daily_flows[daily_flows["direction"] == direction]
+            flow_figure.add_trace(go.Bar(
+                x=values["delivery_date"],
+                y=values["energy_mwh"] * sign,
+                name=direction,
+                marker_color=color,
+            ))
+        flow_figure.update_layout(**_chart_layout(330, "МВт·год"), barmode="relative")
+        flow_figure.update_xaxes(title="Дата постачання")
+        st.plotly_chart(flow_figure, width="stretch")
+
     st.caption(
         "Європейські 15-хвилинні MTU агрегуються у погодинне середнє та "
-        "вирівнюються за UTC. Українська ціна поки не накладається на цей графік: "
-        "для коректного спреду потрібен історичний курс НБУ на кожну дату."
+        "вирівнюються за UTC. Українська ціна переведена в EUR за офіційним "
+        "курсом НБУ для відповідної дати; первинні ціни в грн у базі не змінюються."
     )
 
 
@@ -753,6 +903,7 @@ def main() -> None:
     )
     with overview:
         _draw_overview(frame, selected_date)
+        _draw_market_volume(settings.database_path, selected_date)
     with history:
         _draw_history(frame)
     with quality:

@@ -67,6 +67,15 @@ def parse_operator_market_rows(
         if not label:
             raise ValueError(f"Market Operator period {index} has no period label")
         price = _localized_decimal(row[1], index)
+        volume = None
+        if len(row) >= 4 and str(row[2]).strip() and str(row[3]).strip():
+            purchase_volume = _localized_decimal(row[2], index)
+            sale_volume = _localized_decimal(row[3], index)
+            if purchase_volume != sale_volume:
+                raise ValueError(
+                    f"Market Operator period {index} purchase and sale volumes differ"
+                )
+            volume = sale_volume
         start = delivery_start + timedelta(hours=index - 1)
         records.append(
             HourlyMarketPrice(
@@ -78,6 +87,7 @@ def parse_operator_market_rows(
                 market="day_ahead",
                 source="operator_market",
                 settlement_period=index,
+                volume_mwh=volume,
             )
         )
     return records

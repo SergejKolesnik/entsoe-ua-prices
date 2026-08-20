@@ -6,7 +6,11 @@ from dataclasses import dataclass, replace
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from market_forecast.parsers import parse_operator_market_workbook, parse_price_document
+from market_forecast.parsers import (
+    parse_flow_document,
+    parse_operator_market_workbook,
+    parse_price_document,
+)
 from market_forecast.persistence import RawArtifactStore, SQLiteMarketRepository
 from market_forecast.sources import EntsoeSource, OperatorMarketSource
 from market_forecast.validation import validate_delivery_periods
@@ -82,6 +86,39 @@ class MarketCollectionService:
             validation_status="validated",
         )
         return CollectionResult("entsoe", delivery_date, artifact.sha256, len(records), inserted)
+
+    def collect_entsoe_flow(
+        self,
+        delivery_date: date,
+        source: EntsoeSource,
+        source_zone_eic: str,
+        target_zone_eic: str,
+    ) -> CollectionResult:
+        """Collect one directed ENTSO-E physical-flow border for a Kyiv day."""
+
+        kyiv = ZoneInfo("Europe/Kyiv")
+        period_start = datetime.combine(delivery_date, time.min, kyiv).astimezone(timezone.utc)
+        period_end = datetime.combine(
+            delivery_date + timedelta(days=1), time.min, kyiv
+        ).astimezone(timezone.utc)
+        raw = source.fetch_physical_flows(
+            period_start, period_end, source_zone_eic, target_zone_eic
+        )
+        parsed = parse_flow_document(raw.content)
+        flows = [
+            flow for flow in parsed
+            if flow.delivery_start_utc >= period_start and flow.delivery_end_utc <= period_end
+        ]
+        if not flows or flows[0].delivery_start_utc != period_start or flows[-1].delivery_end_utc != period_end:
+            raise ValueError("ENTSO-E physical flows do not cover the requested Kyiv day")
+        for previous, current in zip(flows, flows[1:]):
+            if previous.delivery_end_utc != current.delivery_start_utc:
+                raise ValueError("ENTSO-E physical flows contain a gap or overlap")
+        artifact = self.artifact_store.save(raw.content, "entsoe_flow", delivery_date, "xml")
+        inserted = self.repository.store_flows(flows, datetime.now(timezone.utc))
+        return CollectionResult(
+            "entsoe_flow", delivery_date, artifact.sha256, len(flows), inserted
+        )
 
     def collect_operator_artifact(
         self,

@@ -74,6 +74,44 @@ class EntsoeSource:
         raw.require_content()
         return raw
 
+    def fetch_physical_flows(
+        self,
+        period_start_utc: datetime,
+        period_end_utc: datetime,
+        source_zone_eic: str,
+        target_zone_eic: str,
+    ) -> RawResponse:
+        """Fetch an A11 physical-flow document for one directed border."""
+
+        start = _require_utc(period_start_utc, "period_start_utc")
+        end = _require_utc(period_end_utc, "period_end_utc")
+        response = self.session.get(
+            API_URL,
+            params={
+                "securityToken": self._token,
+                "documentType": "A11",
+                "out_Domain": source_zone_eic,
+                "in_Domain": target_zone_eic,
+                "periodStart": start.strftime("%Y%m%d%H%M"),
+                "periodEnd": end.strftime("%Y%m%d%H%M"),
+            },
+            timeout=self.timeout_seconds,
+        )
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            raise RuntimeError(
+                f"ENTSO-E request failed with HTTP status {response.status_code}"
+            ) from exc
+        raw = RawResponse(
+            content=response.content,
+            content_type=response.headers.get("Content-Type", ""),
+            status_code=response.status_code,
+            source_url=API_URL,
+        )
+        raw.require_content()
+        return raw
+
 
 def _require_utc(value: datetime, name: str) -> datetime:
     if value.tzinfo is None:

@@ -48,7 +48,8 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
 ## Next priorities
 
 1. Accumulate at least 14–30 real frozen forecasts and monitor operational stability.
-2. Obtain a new ENTSO-E token and run a staged neighbor-market backfill before enabling live comparison.
+2. Extend the validated three-day neighbor/flow/FX sample into a staged historical backfill,
+   then include those refreshes in the local scheduler.
 3. Add official historical NBU rates for currency-normalized Ukrainian spreads.
 4. Add effective-dated price caps and calendar features as a separate shadow candidate.
 5. Add regression fixtures for documented 23/25-period operator days when available.

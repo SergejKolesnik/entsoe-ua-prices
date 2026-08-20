@@ -54,6 +54,22 @@ def build_parser() -> argparse.ArgumentParser:
     neighbor_backfill.add_argument("--delay-seconds", type=float, default=0.5)
     neighbor_backfill.add_argument("--max-days", type=int, default=366)
 
+    flow_backfill = subparsers.add_parser(
+        "backfill-flows",
+        help="Collect directed physical flows between Ukraine and neighboring EU zones.",
+    )
+    flow_backfill.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
+    flow_backfill.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
+    flow_backfill.add_argument("--market", choices=("all", *MARKET_BY_CODE), default="all")
+    flow_backfill.add_argument("--delay-seconds", type=float, default=0.5)
+    flow_backfill.add_argument("--max-days", type=int, default=366)
+
+    fx_backfill = subparsers.add_parser(
+        "backfill-fx", help="Collect official NBU EUR exchange rates."
+    )
+    fx_backfill.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
+    fx_backfill.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
+
     backfill = subparsers.add_parser("backfill", help="Collect an inclusive date range.")
     backfill.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
     backfill.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
@@ -259,6 +275,57 @@ def main(argv: list[str] | None = None) -> int:
                 f"inserted={inserted} failed={market_failures} "
                 f"unpublished={market_unpublished}"
             )
+        return 1 if failures else 0
+    if args.command == "backfill-fx":
+        from datetime import datetime, timezone
+        from market_forecast.config import Settings
+        from market_forecast.persistence import SQLiteMarketRepository
+        from market_forecast.sources import NbuExchangeRateSource
+
+        settings = Settings.from_environment()
+        repository = SQLiteMarketRepository(settings.database_path)
+        rates = NbuExchangeRateSource(
+            timeout_seconds=settings.request_timeout_seconds
+        ).fetch_eur_rates(args.date_from, args.date_to)
+        changed = repository.store_exchange_rates(rates, datetime.now(timezone.utc))
+        print(f"NBU EUR rates: received={len(rates)} stored={changed}")
+        return 0
+    if args.command == "backfill-flows":
+        from market_forecast.config import Settings
+        from market_forecast.persistence import RawArtifactStore, SQLiteMarketRepository
+        from market_forecast.services import MarketCollectionService, run_backfill
+        from market_forecast.sources import EntsoeSource
+
+        settings = Settings.from_environment()
+        service = MarketCollectionService(
+            SQLiteMarketRepository(settings.database_path),
+            RawArtifactStore(settings.raw_data_directory),
+        )
+        source = EntsoeSource(
+            settings.require_entsoe_token(),
+            timeout_seconds=settings.request_timeout_seconds,
+        )
+        markets = list(MARKET_BY_CODE.values()) if args.market == "all" else [MARKET_BY_CODE[args.market]]
+        ukraine_zone = "10Y1001C--00003F"
+        failures = 0
+        for market in markets:
+            for source_zone, target_zone, label in (
+                (market.bidding_zone_eic, ukraine_zone, "import"),
+                (ukraine_zone, market.bidding_zone_eic, "export"),
+            ):
+                results = run_backfill(
+                    args.date_from,
+                    args.date_to,
+                    lambda day, src=source_zone, dst=target_zone: service.collect_entsoe_flow(
+                        day, source, src, dst
+                    ),
+                    delay_seconds=args.delay_seconds,
+                    max_days=args.max_days,
+                )
+                failed = sum(item.status == "failed" for item in results)
+                failures += failed
+                inserted = sum(item.inserted_records for item in results)
+                print(f"{market.code} {label}: requested={len(results)} stored={inserted} failed={failed}")
         return 1 if failures else 0
     if args.command == "quality":
         from market_forecast.config import Settings

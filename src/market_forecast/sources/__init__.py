@@ -2,5 +2,6 @@
 
 from .entsoe import EntsoeSource
 from .operator_market import OperatorMarketSource
+from .nbu import NbuExchangeRateSource
 
-__all__ = ["EntsoeSource", "OperatorMarketSource"]
+__all__ = ["EntsoeSource", "NbuExchangeRateSource", "OperatorMarketSource"]
