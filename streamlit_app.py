@@ -32,6 +32,13 @@ AMBER = "#ffb800"
 BLUE = "#378add"
 RED = "#ef6a5b"
 MUTED = "#7f8a9a"
+MARKET_COLORS = {
+    "UA": "#b58cff",
+    "PL": AMBER,
+    "SK": "#58c68d",
+    "HU": RED,
+    "RO": BLUE,
+}
 
 
 def _inject_styles() -> None:
@@ -70,6 +77,21 @@ def _inject_styles() -> None:
         .rdn-subtitle { color: rgba(255,255,255,.46); font-size: 11px; text-transform: uppercase; }
         .rdn-status { color: #aeb7c5; font-size: 12px; text-align: right; }
         .rdn-status strong { color: #ffb800; }
+        [data-testid="stMultiSelect"] [data-tag][aria-label="Україна"] {
+            background: #b58cff !important; color: #101621 !important;
+        }
+        [data-testid="stMultiSelect"] [data-tag][aria-label="Польща"] {
+            background: #ffb800 !important; color: #101621 !important;
+        }
+        [data-testid="stMultiSelect"] [data-tag][aria-label="Словаччина"] {
+            background: #58c68d !important; color: #101621 !important;
+        }
+        [data-testid="stMultiSelect"] [data-tag][aria-label="Угорщина"] {
+            background: #ef6a5b !important; color: #101621 !important;
+        }
+        [data-testid="stMultiSelect"] [data-tag][aria-label="Румунія"] {
+            background: #378add !important; color: #ffffff !important;
+        }
         @media (max-width: 760px) {
             .rdn-header { align-items: flex-start; flex-direction: column; }
             .rdn-title { font-size: 23px; }
@@ -816,50 +838,80 @@ def _draw_neighbor_markets(
 
     st.markdown("#### Середня ціна за добу")
     daily = (
-        selected.groupby(["delivery_date", "market_name"], as_index=False)["price_eur"]
+        selected.groupby(
+            ["delivery_date", "market_code", "market_name"], as_index=False
+        )["price_eur"]
         .mean()
         .sort_values("delivery_date")
     )
     daily_figure = go.Figure()
-    palette = [AMBER, BLUE, "#58c68d", RED, "#b58cff"]
-    for color, (market_name, values) in zip(
-        palette, daily.groupby("market_name", sort=True)
-    ):
+    for market_code in selected_codes:
+        values = daily[daily["market_code"] == market_code]
+        if values.empty:
+            continue
         daily_figure.add_trace(
             go.Scatter(
                 x=values["delivery_date"],
                 y=values["price_eur"],
                 mode="lines",
-                line=dict(color=color, width=2),
-                name=market_name,
+                line=dict(color=MARKET_COLORS[market_code], width=2),
+                name=market_names[market_code],
             )
         )
     daily_figure.update_layout(**_chart_layout(350, "EUR/МВт·год"))
     daily_figure.update_xaxes(title="Дата постачання")
     st.plotly_chart(daily_figure, width="stretch")
 
-    st.markdown(f"#### Погодинне порівняння · {selected_date.strftime('%d.%m.%Y')}")
-    hourly = selected[selected["delivery_date"] == selected_date]
-    if hourly.empty:
-        st.warning("Для вибраної дати немає даних сусідніх ринків.")
+    dates_by_market = {
+        code: set(selected.loc[selected["market_code"] == code, "delivery_date"])
+        for code in selected_codes
+    }
+    common_dates = sorted(
+        set.intersection(*(dates for dates in dates_by_market.values() if dates))
+    ) if all(dates_by_market.values()) else []
+    comparison_dates = [day for day in common_dates if day <= selected_date][-2:]
+    if not comparison_dates:
+        comparison_dates = common_dates[-2:]
+
+    st.markdown("#### Погодинне порівняння · останні спільні доби")
+    if not comparison_dates:
+        st.warning("Немає доби зі спільними погодинними даними вибраних ринків.")
     else:
-        hourly_figure = go.Figure()
-        for color, (market_name, values) in zip(
-            palette, hourly.groupby("market_name", sort=True)
-        ):
-            hourly_figure.add_trace(
-                go.Scatter(
-                    x=values["delivery_start"],
-                    y=values["price_eur"],
-                    mode="lines+markers",
-                    line=dict(color=color, width=2.5),
-                    marker=dict(size=5),
-                    name=market_name,
+        chart_columns = st.columns(len(comparison_dates))
+        for column, comparison_date in zip(chart_columns, comparison_dates):
+            column.markdown(f"**{comparison_date.strftime('%d.%m.%Y')}**")
+            hourly = selected[selected["delivery_date"] == comparison_date]
+            hourly_figure = go.Figure()
+            for market_code in selected_codes:
+                values = hourly[hourly["market_code"] == market_code].sort_values(
+                    "delivery_start"
                 )
+                if values.empty:
+                    continue
+                hourly_figure.add_trace(
+                    go.Scatter(
+                        x=values["hour"],
+                        y=values["price_eur"],
+                        mode="lines+markers",
+                        line=dict(color=MARKET_COLORS[market_code], width=2.5),
+                        marker=dict(size=4),
+                        name=market_names[market_code],
+                    )
+                )
+            layout = _chart_layout(360, "EUR/МВт·год")
+            layout.update(
+                legend=dict(orientation="h", y=1.18, font=dict(size=10)),
             )
-        hourly_figure.update_layout(**_chart_layout(390, "EUR/МВт·год"))
-        hourly_figure.update_xaxes(title="Година за Києвом", dtick=2 * 60 * 60 * 1000)
-        st.plotly_chart(hourly_figure, width="stretch")
+            hourly_figure.update_layout(**layout)
+            hourly_figure.update_xaxes(
+                title="Година за Києвом", tickmode="linear", dtick=3, range=[0, 23]
+            )
+            column.plotly_chart(hourly_figure, width="stretch")
+        if selected_date not in comparison_dates:
+            st.caption(
+                f"За {selected_date.strftime('%d.%m.%Y')} ще немає повного набору "
+                "сусідніх ринків, тому показано дві останні спільні доби."
+            )
 
     if "UA" in set(selected_codes):
         st.markdown("#### Зв’язок з українською ціною")
