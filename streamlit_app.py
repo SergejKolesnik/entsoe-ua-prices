@@ -418,6 +418,9 @@ def _draw_forecast(frame: pd.DataFrame, latest_date: date) -> None:
 
 def _draw_forecast_monitoring(database_path: Path) -> None:
     repository = SQLiteMarketRepository(database_path)
+    _draw_collection_health(repository)
+    st.divider()
+    st.markdown("#### Контроль зафіксованих прогнозів")
     runs = repository.list_forecast_runs(limit=30)
     if not runs:
         st.info(
@@ -562,6 +565,80 @@ def _draw_forecast_monitoring(database_path: Path) -> None:
     )
     if complete and rmse is not None:
         st.caption(f"RMSE вибраного прогнозу: {float(rmse):,.0f} грн/МВт·год.")
+
+
+def _draw_collection_health(repository: SQLiteMarketRepository) -> None:
+    """Render a compact operational view of every scheduled data family."""
+
+    today = datetime.now(KYIV).date()
+    country_names = {market.code: market.name_uk for market in NEIGHBOR_MARKETS}
+    groups = [
+        ("Український РДН", (SOURCE,), today + timedelta(days=1)),
+        ("Курс НБУ EUR", ("nbu_fx",), today + timedelta(days=1)),
+        ("Обсяги РДН України", ("operator_volume",), today),
+    ]
+    groups.extend(
+        (f"Ціни · {country_names[code]}", (f"entsoe_price_{code}",), today)
+        for code in country_names
+    )
+    groups.extend(
+        (
+            f"Перетоки · {country_names[code]}",
+            (f"entsoe_flow_{code}_import", f"entsoe_flow_{code}_export"),
+            today - timedelta(days=1),
+        )
+        for code in country_names
+    )
+    source_names = [source for _, sources, _ in groups for source in sources]
+    attempts = repository.latest_collection_attempts(source_names)
+    rows = []
+    needs_attention = 0
+    for label, sources, expected_date in groups:
+        entries = [attempts.get(source) for source in sources]
+        present = [entry for entry in entries if entry is not None]
+        if len(present) != len(sources):
+            status = "⚪ Немає запуску"
+            needs_attention += 1
+        elif any(entry[2] == "failed" for entry in present):
+            status = "🔴 Помилка"
+            needs_attention += 1
+        elif any(entry[2] == "unpublished" for entry in present):
+            status = "🟡 Очікуються дані"
+        elif any(entry[0] < expected_date for entry in present):
+            status = "🟠 Застаріло"
+            needs_attention += 1
+        else:
+            status = "🟢 Актуально"
+        newest_attempt = max((entry[1] for entry in present), default=None)
+        oldest_delivery = min((entry[0] for entry in present), default=None)
+        rows.append(
+            {
+                "Джерело": label,
+                "Статус": status,
+                "Дані за": oldest_delivery,
+                "Остання спроба": newest_attempt.astimezone(KYIV) if newest_attempt else None,
+                "Записів у спробі": sum(entry[3] for entry in present),
+            }
+        )
+
+    if needs_attention:
+        st.warning(f"Потрібна увага: {needs_attention} із {len(groups)} джерел.")
+    else:
+        st.success("Автоматичне оновлення працює: критичних проблем немає.")
+    st.dataframe(
+        pd.DataFrame(rows),
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Дані за": st.column_config.DateColumn(format="DD.MM.YYYY"),
+            "Остання спроба": st.column_config.DatetimeColumn(format="DD.MM.YYYY HH:mm"),
+            "Записів у спробі": st.column_config.NumberColumn(format="%d"),
+        },
+    )
+    st.caption(
+        "Нуль записів у спробі може означати, що дані вже були в базі; повторні запуски "
+        "не створюють дублів. Перетоки показуються одним рядком для імпорту й експорту."
+    )
 
 
 @st.cache_data(ttl=60)

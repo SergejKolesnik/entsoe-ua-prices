@@ -51,7 +51,7 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
 2. Continue the staged history from the validated baseline: 30 days of neighbor prices,
    366 NBU EUR rates, 367 days of Ukrainian prices/volumes, and six fully covered flow days.
    One incomplete ENTSO-E Poland export day is intentionally excluded from aggregates.
-3. Surface per-source context-refresh health clearly in the monitoring UI.
+3. Measure lagged relationships between Ukrainian prices, neighbor prices, flows, and volumes.
 4. Extend physical-flow history in controlled batches.
 5. Add effective-dated price caps and calendar features as a separate shadow candidate.
 6. Add regression fixtures for documented 23/25-period operator days when available.

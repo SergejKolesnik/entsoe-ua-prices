@@ -104,7 +104,7 @@ $env:PYTHONPATH = "src"
 python -m market_forecast.cli snapshot-baseline
 ```
 
-The **Моніторинг** tab compares each frozen hourly vintage with facts only after they arrive. It shows forecast coverage, observed MAE/RMSE, the original P80 band, and a permanent run journal. Repeated scheduler attempts return the existing identical snapshot; they never rewrite a forecast after the fact.
+The **Моніторинг** tab first shows freshness for the Ukrainian DAM, NBU rate, Operator volumes, four neighbor-price feeds, and four bidirectional border-flow groups. It then compares each frozen hourly vintage with facts only after they arrive, showing forecast coverage, observed MAE/RMSE, the original P80 band, and a permanent run journal. Repeated scheduler attempts return the existing identical snapshot; they never rewrite a forecast after the fact.
 
 ## Neighboring EU markets
 

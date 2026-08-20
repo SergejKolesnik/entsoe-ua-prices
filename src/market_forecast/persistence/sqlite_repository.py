@@ -502,6 +502,43 @@ class SQLiteMarketRepository:
             return None
         return date.fromisoformat(row[0]), _parse_utc(row[1]), row[2], int(row[3]), row[4]
 
+    def latest_collection_attempts(
+        self, sources: Iterable[str]
+    ) -> dict[str, tuple[date, datetime, str, int, str | None]]:
+        """Return the newest scheduler outcome for each requested source."""
+
+        source_list = list(dict.fromkeys(sources))
+        if not source_list:
+            return {}
+        placeholders = ", ".join("?" for _ in source_list)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                f"""SELECT source, delivery_date, attempted_at_utc, status,
+                           inserted_records, message
+                    FROM (
+                        SELECT source, delivery_date, attempted_at_utc, status,
+                               inserted_records, message,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY source
+                                   ORDER BY attempted_at_utc DESC, id DESC
+                               ) AS position
+                        FROM collection_attempts
+                        WHERE source IN ({placeholders})
+                    )
+                    WHERE position = 1""",
+                source_list,
+            ).fetchall()
+        return {
+            row[0]: (
+                date.fromisoformat(row[1]),
+                _parse_utc(row[2]),
+                row[3],
+                int(row[4]),
+                row[5],
+            )
+            for row in rows
+        }
+
     def store_forecast_snapshot(
         self,
         *,

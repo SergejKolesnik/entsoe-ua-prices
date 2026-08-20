@@ -243,6 +243,33 @@ class PersistenceTests(unittest.TestCase):
             )
             self.assertEqual(repository.available_period("entsoe", "SK")[0], start)
 
+    def test_latest_collection_attempts_returns_one_row_per_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = SQLiteMarketRepository(Path(directory) / "market.sqlite3")
+            first = datetime(2026, 8, 20, 12, tzinfo=timezone.utc)
+            second = first + timedelta(hours=1)
+            repository.record_collection_attempt(
+                "source_a", date(2026, 8, 20), first, "failed", message="ValueError"
+            )
+            repository.record_collection_attempt(
+                "source_a", date(2026, 8, 21), second, "collected", 24
+            )
+            repository.record_collection_attempt(
+                "source_b", date(2026, 8, 20), first, "unpublished"
+            )
+
+            results = repository.latest_collection_attempts(
+                ["source_a", "source_b", "missing", "source_a"]
+            )
+
+            self.assertEqual(set(results), {"source_a", "source_b"})
+            self.assertEqual(
+                results["source_a"],
+                (date(2026, 8, 21), second, "collected", 24, None),
+            )
+            self.assertEqual(results["source_b"][2], "unpublished")
+            self.assertEqual(repository.latest_collection_attempts([]), {})
+
 
 if __name__ == "__main__":
     unittest.main()
