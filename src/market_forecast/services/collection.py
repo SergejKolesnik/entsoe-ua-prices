@@ -44,7 +44,7 @@ class MarketCollectionService:
         source: EntsoeSource,
         bidding_zone_eic: str,
     ) -> CollectionResult:
-        """Collect and persist one Kyiv delivery day from ENTSO-E."""
+        """Collect and persist one Kyiv-aligned delivery day from ENTSO-E."""
 
         kyiv = ZoneInfo("Europe/Kyiv")
         period_start = datetime.combine(delivery_date, time.min, kyiv).astimezone(timezone.utc)

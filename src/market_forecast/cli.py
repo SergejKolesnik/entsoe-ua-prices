@@ -41,6 +41,10 @@ def build_parser() -> argparse.ArgumentParser:
         "snapshot-baseline",
         help="Freeze the next operational baseline forecast for later scoring.",
     )
+    subparsers.add_parser(
+        "refresh-context",
+        help="Refresh latest neighbor prices, NBU FX, yesterday flows, and recent volumes.",
+    )
 
     neighbor_backfill = subparsers.add_parser(
         "backfill-neighbors",
@@ -238,6 +242,18 @@ def main(argv: list[str] | None = None) -> int:
             f"model={result.model_name}@{result.model_version} points={result.points}"
         )
         return 0
+    if args.command == "refresh-context":
+        from market_forecast.config import Settings
+        from market_forecast.services import refresh_market_context
+
+        results = refresh_market_context(Settings.from_environment())
+        for item in results:
+            message = f" error={item.message}" if item.message else ""
+            print(
+                f"{item.source} {item.delivery_date} {item.status} "
+                f"records={item.records}{message}"
+            )
+        return 1 if any(item.status == "failed" for item in results) else 0
     if args.command == "backfill-neighbors":
         from market_forecast.config import Settings
         from market_forecast.persistence import RawArtifactStore, SQLiteMarketRepository

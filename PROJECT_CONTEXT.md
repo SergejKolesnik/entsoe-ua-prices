@@ -31,8 +31,8 @@ Phase 4: transparent forecasting baseline. Durable ingestion, automated refresh,
 - The forecast tab compares a same-weekday median against previous-day persistence on identical chronological cutoffs and displays only the lower-MAE baseline.
 - Forecast timestamps always start after the latest published DAM delivery day. The P80 absolute-error band is an empirical diagnostic, not a guaranteed confidence interval.
 - A local staged backfill validated 366/366 delivery days from 2025-08-19 through 2026-08-19 with 8,784/8,784 expected periods, including the real 25-hour and 23-hour DST days. The SQLite/raw dataset remains local and Git-ignored.
-- Page views never trigger source requests. `refresh_operator.py` is the scheduler-safe one-shot entry point and defaults to tomorrow in the Kyiv calendar.
-- Windows Task Scheduler runs the refresh at 14:15, 15:00, 16:00, and 17:00 local time; retries remain idempotent and missed runs start when the computer becomes available.
+- Page views never trigger source requests. `refresh_operator.py` refreshes tomorrow's Ukrainian results; `refresh_context.py` independently refreshes neighbor prices, NBU rates, completed flows, and recent volumes.
+- Windows Task Scheduler runs the Operator refresh at 14:15, 15:00, 16:00, and 17:00 and the context refresh at 17:20 local time. Retries remain idempotent and missed runs start when the computer becomes available.
 - Every automatic attempt is stored as `collected`, `unpublished`, or `failed`; the dashboard exposes freshness without storing raw exception text that could contain sensitive URLs.
 - Every successful scheduled refresh freezes an immutable `baseline-v1` forecast for the first unknown delivery day. A target/model/version uniqueness contract prevents hindsight rewrites.
 - Forecast runs retain their issue time, training cutoff, model version, backtest metrics, hourly prediction, P80 bounds, method, and sample count.
@@ -51,9 +51,8 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
 2. Continue the staged history from the validated baseline: 30 days of neighbor prices,
    366 NBU EUR rates, 367 days of Ukrainian prices/volumes, and six fully covered flow days.
    One incomplete ENTSO-E Poland export day is intentionally excluded from aggregates.
-3. Add resumable scheduled refreshes for neighbor prices, NBU rates, operator volumes, and
-   completed physical-flow days before extending flow history in larger batches.
-3. Add official historical NBU rates for currency-normalized Ukrainian spreads.
-4. Add effective-dated price caps and calendar features as a separate shadow candidate.
-5. Add regression fixtures for documented 23/25-period operator days when available.
-6. Design and review optional PostgreSQL/Supabase migrations, including feature publication timestamps.
+3. Surface per-source context-refresh health clearly in the monitoring UI.
+4. Extend physical-flow history in controlled batches.
+5. Add effective-dated price caps and calendar features as a separate shadow candidate.
+6. Add regression fixtures for documented 23/25-period operator days when available.
+7. Design and review optional PostgreSQL/Supabase migrations, including feature publication timestamps.

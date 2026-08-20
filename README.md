@@ -93,7 +93,9 @@ On Windows, install the prepared Task Scheduler job from PowerShell:
 powershell -ExecutionPolicy Bypass -File scripts\install_windows_refresh_task.ps1
 ```
 
-The task runs at 14:15, 15:00, 16:00, and 17:00 in the computer's local timezone. Keep Windows configured for the Kyiv timezone. If the computer is off, `StartWhenAvailable` runs the missed task after startup. Each attempt is shown in the dashboard as current, unpublished, or failed; failures store only the exception type, never a response URL or token. Repeated successful runs are safe and do not duplicate hourly prices.
+The installer creates two independent tasks. The Ukrainian Operator task runs at 14:15, 15:00, 16:00, and 17:00. A market-context task runs at 17:20 and refreshes the current Kyiv-aligned neighbor-price day, official NBU EUR rates, yesterday's completed border flows, and recent Operator volumes. Keeping them separate prevents an ENTSO-E failure from blocking the operational Ukrainian refresh.
+
+Keep Windows configured for the Kyiv timezone. If the computer is off, `StartWhenAvailable` runs a missed task after startup. Collection outcomes are persisted per source; failures store only the exception type, never a response URL or token. Repeated successful runs are safe and do not duplicate records. The context task requires `ENTSOE_TOKEN` in the Windows user environment.
 
 After every successful refresh, the same finite job also freezes the first still-unknown delivery day as an immutable `baseline-v1` snapshot. Manual snapshot generation is available for diagnostics:
 

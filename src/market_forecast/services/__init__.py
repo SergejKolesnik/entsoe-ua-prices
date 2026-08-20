@@ -6,6 +6,12 @@ from .data_quality import DailyQuality, build_quality_report
 from .scheduled_refresh import RefreshResult, next_delivery_date, refresh_operator_day
 from .forecast_snapshots import SnapshotGenerationResult, generate_baseline_snapshot
 from .neighbor_prices import aggregate_price_rows_hourly
+from .context_refresh import (
+    ContextDates,
+    ContextRefreshResult,
+    context_dates,
+    refresh_market_context,
+)
 
 __all__ = [
     "BackfillDayResult",
@@ -20,4 +26,8 @@ __all__ = [
     "SnapshotGenerationResult",
     "generate_baseline_snapshot",
     "aggregate_price_rows_hourly",
+    "ContextDates",
+    "ContextRefreshResult",
+    "context_dates",
+    "refresh_market_context",
 ]
