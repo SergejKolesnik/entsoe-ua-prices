@@ -22,7 +22,10 @@ if str(SOURCE_ROOT) not in sys.path:
 from market_forecast.config import Settings  # noqa: E402
 from market_forecast.forecasting import build_day_forecast, walk_forward_backtest  # noqa: E402
 from market_forecast.neighbor_markets import NEIGHBOR_MARKETS  # noqa: E402
-from market_forecast.persistence import SQLiteMarketRepository  # noqa: E402
+from market_forecast.persistence import (  # noqa: E402
+    SQLiteMarketRepository,
+    create_market_repository,
+)
 from market_forecast.services import aggregate_price_rows_hourly, build_quality_report  # noqa: E402
 
 
@@ -39,6 +42,13 @@ MARKET_COLORS = {
     "HU": RED,
     "RO": BLUE,
 }
+
+
+def _repository(database_path: Path | str) -> SQLiteMarketRepository:
+    """Return Neon storage when configured, otherwise the local SQLite database."""
+
+    settings = Settings.from_environment()
+    return create_market_repository(Path(database_path), settings.database_url)
 
 
 def _inject_styles() -> None:
@@ -147,7 +157,7 @@ def _header(
 
 @st.cache_data(ttl=60)
 def _load_prices(database_path: str, date_from: date, date_to: date) -> pd.DataFrame:
-    repository = SQLiteMarketRepository(Path(database_path))
+    repository = _repository(database_path)
     start = datetime.combine(date_from, time.min, KYIV).astimezone(timezone.utc)
     end = datetime.combine(date_to + timedelta(days=1), time.min, KYIV).astimezone(
         timezone.utc
@@ -291,7 +301,7 @@ def _draw_history(frame: pd.DataFrame) -> None:
 
 
 def _draw_quality(database_path: Path, date_from: date, date_to: date) -> None:
-    repository = SQLiteMarketRepository(database_path)
+    repository = _repository(database_path)
     report = build_quality_report(repository, date_from, date_to, SOURCE)
     complete = sum(item.status == "complete" for item in report)
     expected = sum(item.expected_periods for item in report)
@@ -439,7 +449,7 @@ def _draw_forecast(frame: pd.DataFrame, latest_date: date) -> None:
 
 
 def _draw_forecast_monitoring(database_path: Path) -> None:
-    repository = SQLiteMarketRepository(database_path)
+    repository = _repository(database_path)
     _draw_collection_health(repository)
     st.divider()
     st.markdown("#### Контроль зафіксованих прогнозів")
@@ -667,7 +677,7 @@ def _draw_collection_health(repository: SQLiteMarketRepository) -> None:
 def _load_neighbor_prices(
     database_path: str, date_from: date, date_to: date
 ) -> pd.DataFrame:
-    repository = SQLiteMarketRepository(Path(database_path))
+    repository = _repository(database_path)
     repository.initialize()
     start = datetime.combine(date_from, time.min, KYIV).astimezone(timezone.utc)
     end = datetime.combine(date_to + timedelta(days=1), time.min, KYIV).astimezone(
@@ -716,7 +726,7 @@ def _load_neighbor_prices(
 def _load_cross_border_flows(
     database_path: str, date_from: date, date_to: date
 ) -> pd.DataFrame:
-    repository = SQLiteMarketRepository(Path(database_path))
+    repository = _repository(database_path)
     repository.initialize()
     start = datetime.combine(date_from, time.min, KYIV).astimezone(timezone.utc)
     end = datetime.combine(date_to + timedelta(days=1), time.min, KYIV).astimezone(timezone.utc)
@@ -751,7 +761,7 @@ def _load_cross_border_flows(
 
 
 def _draw_market_volume(database_path: Path, selected_date: date) -> None:
-    repository = SQLiteMarketRepository(database_path)
+    repository = _repository(database_path)
     start = datetime.combine(selected_date, time.min, KYIV).astimezone(timezone.utc)
     end = datetime.combine(selected_date + timedelta(days=1), time.min, KYIV).astimezone(timezone.utc)
     volume_rows = repository.list_price_volumes(SOURCE, start, end)
@@ -1095,7 +1105,7 @@ def main() -> None:
     st.set_page_config(page_title="RDN Market Intelligence", page_icon="⚡", layout="wide")
     _inject_styles()
     settings = Settings.from_environment()
-    repository = SQLiteMarketRepository(settings.database_path)
+    repository = create_market_repository(settings.database_path, settings.database_url)
     repository.initialize()
     available = repository.available_period(SOURCE)
     if available is None:
@@ -1130,7 +1140,8 @@ def main() -> None:
         )
         st.divider()
         st.caption("Джерело: Оператор ринку України")
-        st.caption(f"База: {settings.database_path}")
+        storage_label = "Neon PostgreSQL" if settings.database_url else str(settings.database_path)
+        st.caption(f"База: {storage_label}")
         if st.button("Оновити екран", width="stretch"):
             st.cache_data.clear()
             st.rerun()

@@ -12,6 +12,7 @@ class Settings:
     """Runtime settings containing no implicit credentials."""
 
     entsoe_token: str | None
+    database_url: str | None = None
     request_timeout_seconds: float = 30.0
     database_path: Path = Path("data/market_forecast.sqlite3")
     raw_data_directory: Path = Path("data/raw")
@@ -26,6 +27,7 @@ class Settings:
             raise ValueError("REQUEST_TIMEOUT_SECONDS must be positive")
         return cls(
             entsoe_token=token,
+            database_url=os.getenv("DATABASE_URL") or None,
             request_timeout_seconds=timeout,
             database_path=Path(os.getenv("DATABASE_PATH", "data/market_forecast.sqlite3")),
             raw_data_directory=Path(os.getenv("RAW_DATA_DIRECTORY", "data/raw")),

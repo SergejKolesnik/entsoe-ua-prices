@@ -19,7 +19,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="store_true", help="Print the package version and exit.")
     subparsers = parser.add_subparsers(dest="command")
-    initialize = subparsers.add_parser("init-db", help="Create the local SQLite schema.")
+    initialize = subparsers.add_parser("init-db", help="Initialize the configured database.")
     initialize.add_argument("--database", help="Override DATABASE_PATH.")
 
     collect = subparsers.add_parser("collect", help="Collect one explicit delivery day.")
@@ -108,22 +108,27 @@ def main(argv: list[str] | None = None) -> int:
         from pathlib import Path
 
         from market_forecast.config import Settings
-        from market_forecast.persistence import SQLiteMarketRepository
+        from market_forecast.persistence import SQLiteMarketRepository, create_market_repository
 
         settings = Settings.from_environment()
         path = Path(args.database) if args.database else settings.database_path
-        SQLiteMarketRepository(path).initialize()
-        print(f"Initialized SQLite database: {path}")
+        repository = (
+            SQLiteMarketRepository(path)
+            if args.database
+            else create_market_repository(path, settings.database_url)
+        )
+        repository.initialize()
+        print("Initialized configured market database")
         return 0
     if args.command == "collect":
         from market_forecast.config import Settings
-        from market_forecast.persistence import RawArtifactStore, SQLiteMarketRepository
+        from market_forecast.persistence import RawArtifactStore, create_market_repository
         from market_forecast.services import MarketCollectionService
         from market_forecast.sources import EntsoeSource, OperatorMarketSource
 
         settings = Settings.from_environment()
         service = MarketCollectionService(
-            SQLiteMarketRepository(settings.database_path),
+            create_market_repository(settings.database_path, settings.database_url),
             RawArtifactStore(settings.raw_data_directory),
         )
         if args.source == "entsoe":
@@ -153,13 +158,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "backfill":
         from market_forecast.config import Settings
-        from market_forecast.persistence import RawArtifactStore, SQLiteMarketRepository
+        from market_forecast.persistence import RawArtifactStore, create_market_repository
         from market_forecast.services import MarketCollectionService, run_backfill
         from market_forecast.sources import EntsoeSource, OperatorMarketSource
 
         settings = Settings.from_environment()
         service = MarketCollectionService(
-            SQLiteMarketRepository(settings.database_path),
+            create_market_repository(settings.database_path, settings.database_url),
             RawArtifactStore(settings.raw_data_directory),
         )
         if args.source == "entsoe":
@@ -193,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if failures else 0
     if args.command == "refresh-operator":
         from market_forecast.config import Settings
-        from market_forecast.persistence import RawArtifactStore, SQLiteMarketRepository
+        from market_forecast.persistence import RawArtifactStore, create_market_repository
         from market_forecast.services import (
             MarketCollectionService,
             next_delivery_date,
@@ -202,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         from market_forecast.sources import OperatorMarketSource
 
         settings = Settings.from_environment()
-        repository = SQLiteMarketRepository(settings.database_path)
+        repository = create_market_repository(settings.database_path, settings.database_url)
         service = MarketCollectionService(
             repository,
             RawArtifactStore(settings.raw_data_directory),
@@ -231,11 +236,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2 if result.status == "unpublished" else 1
     if args.command == "snapshot-baseline":
         from market_forecast.config import Settings
-        from market_forecast.persistence import SQLiteMarketRepository
+        from market_forecast.persistence import create_market_repository
         from market_forecast.services import generate_baseline_snapshot
 
         settings = Settings.from_environment()
-        result = generate_baseline_snapshot(SQLiteMarketRepository(settings.database_path))
+        result = generate_baseline_snapshot(
+            create_market_repository(settings.database_path, settings.database_url)
+        )
         status = "created" if result.created else "already_exists"
         print(
             f"Forecast snapshot {status}: target={result.target_delivery_date} "
@@ -256,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if any(item.status == "failed" for item in results) else 0
     if args.command == "backfill-neighbors":
         from market_forecast.config import Settings
-        from market_forecast.persistence import RawArtifactStore, SQLiteMarketRepository
+        from market_forecast.persistence import RawArtifactStore, create_market_repository
         from market_forecast.services import MarketCollectionService, run_backfill
         from market_forecast.sources import EntsoeSource
 
@@ -266,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
             timeout_seconds=settings.request_timeout_seconds,
         )
         service = MarketCollectionService(
-            SQLiteMarketRepository(settings.database_path),
+            create_market_repository(settings.database_path, settings.database_url),
             RawArtifactStore(settings.raw_data_directory),
         )
         markets = (
@@ -300,11 +307,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "backfill-fx":
         from datetime import datetime, timezone
         from market_forecast.config import Settings
-        from market_forecast.persistence import SQLiteMarketRepository
+        from market_forecast.persistence import create_market_repository
         from market_forecast.sources import NbuExchangeRateSource
 
         settings = Settings.from_environment()
-        repository = SQLiteMarketRepository(settings.database_path)
+        repository = create_market_repository(settings.database_path, settings.database_url)
         rates = NbuExchangeRateSource(
             timeout_seconds=settings.request_timeout_seconds
         ).fetch_eur_rates(args.date_from, args.date_to)
@@ -314,10 +321,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "enrich-operator-volumes":
         from market_forecast.config import Settings
         from market_forecast.parsers import parse_operator_market_workbook
-        from market_forecast.persistence import SQLiteMarketRepository
+        from market_forecast.persistence import create_market_repository
 
         settings = Settings.from_environment()
-        repository = SQLiteMarketRepository(settings.database_path)
+        repository = create_market_repository(settings.database_path, settings.database_url)
         repository.initialize()
         updated = 0
         failed = 0
@@ -335,13 +342,13 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if failed else 0
     if args.command == "backfill-flows":
         from market_forecast.config import Settings
-        from market_forecast.persistence import RawArtifactStore, SQLiteMarketRepository
+        from market_forecast.persistence import RawArtifactStore, create_market_repository
         from market_forecast.services import MarketCollectionService, run_backfill
         from market_forecast.sources import EntsoeSource
 
         settings = Settings.from_environment()
         service = MarketCollectionService(
-            SQLiteMarketRepository(settings.database_path),
+            create_market_repository(settings.database_path, settings.database_url),
             RawArtifactStore(settings.raw_data_directory),
         )
         source = EntsoeSource(
@@ -372,11 +379,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if failures else 0
     if args.command == "quality":
         from market_forecast.config import Settings
-        from market_forecast.persistence import SQLiteMarketRepository
+        from market_forecast.persistence import create_market_repository
         from market_forecast.services import build_quality_report
 
         settings = Settings.from_environment()
-        repository = SQLiteMarketRepository(settings.database_path)
+        repository = create_market_repository(settings.database_path, settings.database_url)
         repository.initialize()
         source = "operator_market" if args.source == "operator" else "entsoe"
         report = build_quality_report(repository, args.date_from, args.date_to, source)

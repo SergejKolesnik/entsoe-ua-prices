@@ -75,7 +75,9 @@ python -m market_forecast.cli backfill --source operator --from 2026-07-19 --to 
 python -m streamlit run streamlit_app.py
 ```
 
-Streamlit prints the local browser address, normally `http://localhost:8501`. The dashboard reads `data/market_forecast.sqlite3` and does not contact or modify SkyGrid Solar. Its **Прогноз** tab shows a transparent one-step baseline for the first delivery day after the latest published DAM prices.
+Streamlit prints the local browser address, normally `http://localhost:8501`. The dashboard reads `data/market_forecast.sqlite3` by default and does not contact or modify SkyGrid Solar. When `DATABASE_URL` is configured, the dashboard and collectors use the dedicated Neon PostgreSQL database instead. Its **Прогноз** tab shows a transparent one-step baseline for the first delivery day after the latest published DAM prices.
+
+`DATABASE_URL` is a secret. Configure it only in the Windows user environment, GitHub Actions secrets, or Streamlit secrets; never commit it to Git. SQLite remains the automatic local fallback when the variable is absent.
 
 The baseline is selected only by chronological walk-forward results. It compares the median of up to four prior matching weekdays against the previous-day hourly profile, uses no observation from or after a historical forecast cutoff, and displays the lower-MAE method. The uncertainty band is the 80th percentile of historical absolute errors, not a guaranteed confidence interval. This is an auditable research baseline rather than a claim of production-grade accuracy.
 
@@ -142,7 +144,8 @@ Neighbor prices remain in EUR/MWh. The Ukrainian curve and cross-border spread a
 - `parse_price_document` converts ENTSO-E XML to immutable hourly records.
 - `validate_delivery_periods` verifies completeness and continuity.
 - `RawArtifactStore` preserves source bytes under a content hash.
-- `SQLiteMarketRepository` owns the transactional and idempotent database contract.
+- `SQLiteMarketRepository` owns the established transactional and idempotent contract.
+- `PostgresMarketRepository` provides the same contract for the dedicated Neon database.
 
 No source adapter writes files or database rows; application services coordinate those side effects.
 

@@ -1,6 +1,6 @@
 # Ukraine Energy Market Forecast — Project Context
 
-Last updated: 2026-08-18
+Last updated: 2026-08-20
 
 ## Purpose
 
@@ -8,7 +8,7 @@ Build an independent decision-support system for Ukrainian day-ahead market data
 
 ## Current phase
 
-Phase 4: transparent forecasting baseline. Durable ingestion, automated refresh, analytics UI, and leakage-safe walk-forward evaluation exist; no production-grade forecast, Supabase integration, or Solar Monitoring System integration exists yet.
+Phase 5: publication foundation. Durable ingestion, automated refresh, analytics UI, leakage-safe walk-forward evaluation, and an optional dedicated Neon PostgreSQL backend exist; no production-grade forecast or Solar Monitoring System integration exists.
 
 ## Architecture decisions
 
@@ -17,6 +17,8 @@ Phase 4: transparent forecasting baseline. Durable ingestion, automated refresh,
 - Domain timestamps are timezone-aware and normalized to UTC.
 - Missing settlement periods are validation errors, not zero-valued observations.
 - Git-tracked CSV is retired as operational storage.
+- Storage selection is configuration-driven: Neon is used only when `DATABASE_URL` is present, while SQLite remains the local fallback.
+- Database credentials are runtime secrets and must never be committed or displayed in the dashboard.
 - The old prototype is preserved by Git history and the `prototype-v0` tag.
 - The research PDF in `docs/references/` is retained as a theoretical reference. Its reported monthly statistics are not considered reproduced until the underlying dataset and analysis code are available.
 - Effective-dated price-cap regimes and forecast feature `available_at` timestamps are mandatory parts of the future data model.
@@ -55,4 +57,4 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
 4. Extend physical-flow history in controlled batches.
 5. Add effective-dated price caps and calendar features as a separate shadow candidate.
 6. Add regression fixtures for documented 23/25-period operator days when available.
-7. Design and review optional PostgreSQL/Supabase migrations, including feature publication timestamps.
+7. Validate the Neon adapter against migrated data, then deploy a read-only Streamlit staging application.

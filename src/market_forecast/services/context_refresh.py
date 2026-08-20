@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from market_forecast.config import Settings
 from market_forecast.neighbor_markets import NEIGHBOR_MARKETS
 from market_forecast.parsers import parse_operator_market_workbook
-from market_forecast.persistence import RawArtifactStore, SQLiteMarketRepository
+from market_forecast.persistence import RawArtifactStore, create_market_repository
 from market_forecast.services.collection import MarketCollectionService
 from market_forecast.sources import EntsoeSource, NbuExchangeRateSource
 
@@ -56,7 +56,7 @@ def refresh_market_context(
 
     attempted_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     dates = context_dates(attempted_at)
-    repository = SQLiteMarketRepository(settings.database_path)
+    repository = create_market_repository(settings.database_path, settings.database_url)
     repository.initialize()
     service = MarketCollectionService(
         repository,
