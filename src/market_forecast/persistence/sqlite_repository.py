@@ -9,7 +9,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Iterable
 
-from market_forecast.domain import CrossBorderFlow, HourlyMarketPrice
+from market_forecast.domain import CrossBorderFlow, HourlyMarketPrice, WeatherForecastPoint
 from market_forecast.persistence.raw_artifacts import StoredArtifact
 
 
@@ -84,6 +84,29 @@ class SQLiteMarketRepository:
 
                 CREATE INDEX IF NOT EXISTS idx_cross_border_flows_delivery
                 ON cross_border_flows (delivery_start_utc, source_zone, target_zone);
+
+                CREATE TABLE IF NOT EXISTS weather_forecasts (
+                    source TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    location_id TEXT NOT NULL,
+                    latitude TEXT NOT NULL,
+                    longitude TEXT NOT NULL,
+                    forecast_vintage_utc TEXT NOT NULL,
+                    valid_start_utc TEXT NOT NULL,
+                    temperature_c TEXT NOT NULL,
+                    cloud_cover_percent TEXT NOT NULL,
+                    shortwave_radiation_wm2 TEXT NOT NULL,
+                    wind_speed_100m_kmh TEXT NOT NULL,
+                    raw_artifact_id INTEGER NOT NULL REFERENCES raw_artifacts(id),
+                    ingested_at_utc TEXT NOT NULL,
+                    PRIMARY KEY (
+                        source, model, location_id,
+                        forecast_vintage_utc, valid_start_utc
+                    )
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_weather_forecasts_valid
+                ON weather_forecasts (valid_start_utc, forecast_vintage_utc);
 
                 CREATE TABLE IF NOT EXISTS collection_attempts (
                     id INTEGER PRIMARY KEY,
@@ -328,6 +351,118 @@ class SQLiteMarketRepository:
             ).fetchall()
         return [
             (_parse_utc(row[0]), _parse_utc(row[1]), row[2], row[3], Decimal(row[4]))
+            for row in rows
+        ]
+
+    def store_weather_forecast(
+        self,
+        artifact: StoredArtifact,
+        source_url: str,
+        fetched_at_utc: datetime,
+        points: Iterable[WeatherForecastPoint],
+    ) -> int:
+        """Persist an immutable regional forecast vintage and its raw JSON."""
+
+        rows = list(points)
+        if not rows:
+            raise ValueError("Weather forecast must contain points")
+        fetched_at = _utc_iso(fetched_at_utc, "fetched_at_utc")
+        delivery_date = min(point.valid_start_utc for point in rows).date()
+        self.initialize()
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """INSERT INTO raw_artifacts (
+                       sha256, source, delivery_date, source_url, content_type,
+                       local_path, byte_count, fetched_at_utc, validation_status
+                   ) VALUES (?, 'open_meteo', ?, ?, 'application/json', ?, ?, ?, 'validated')
+                   ON CONFLICT(source, delivery_date, sha256) DO NOTHING""",
+                (
+                    artifact.sha256,
+                    delivery_date.isoformat(),
+                    source_url,
+                    str(artifact.path),
+                    artifact.byte_count,
+                    fetched_at,
+                ),
+            )
+            artifact_row = connection.execute(
+                """SELECT id FROM raw_artifacts
+                   WHERE source = 'open_meteo' AND delivery_date = ? AND sha256 = ?""",
+                (delivery_date.isoformat(), artifact.sha256),
+            ).fetchone()
+            if artifact_row is None:
+                raise RuntimeError("Weather raw artifact could not be persisted")
+            inserted = 0
+            for point in rows:
+                cursor = connection.execute(
+                    """INSERT INTO weather_forecasts (
+                           source, model, location_id, latitude, longitude,
+                           forecast_vintage_utc, valid_start_utc, temperature_c,
+                           cloud_cover_percent, shortwave_radiation_wm2,
+                           wind_speed_100m_kmh, raw_artifact_id, ingested_at_utc
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(source, model, location_id,
+                                   forecast_vintage_utc, valid_start_utc)
+                       DO NOTHING""",
+                    (
+                        point.source, point.model, point.location_id,
+                        str(point.latitude), str(point.longitude),
+                        _utc_iso(point.forecast_vintage_utc, "forecast_vintage_utc"),
+                        _utc_iso(point.valid_start_utc, "valid_start_utc"),
+                        str(point.temperature_c), str(point.cloud_cover_percent),
+                        str(point.shortwave_radiation_wm2),
+                        str(point.wind_speed_100m_kmh), int(artifact_row[0]), fetched_at,
+                    ),
+                )
+                inserted += cursor.rowcount
+        return inserted
+
+    def list_weather_forecasts(
+        self,
+        period_start_utc: datetime,
+        period_end_utc: datetime,
+        forecast_vintage_utc: datetime | None = None,
+    ) -> list[WeatherForecastPoint]:
+        """Return one explicit vintage or the newest vintage for each valid hour."""
+
+        start = _utc_iso(period_start_utc, "period_start_utc")
+        end = _utc_iso(period_end_utc, "period_end_utc")
+        with closing(self._connect()) as connection:
+            if forecast_vintage_utc is not None:
+                rows = connection.execute(
+                    """SELECT location_id, latitude, longitude, forecast_vintage_utc,
+                              valid_start_utc, temperature_c, cloud_cover_percent,
+                              shortwave_radiation_wm2, wind_speed_100m_kmh, source, model
+                       FROM weather_forecasts
+                       WHERE valid_start_utc >= ? AND valid_start_utc < ?
+                         AND forecast_vintage_utc = ?
+                       ORDER BY location_id, valid_start_utc""",
+                    (start, end, _utc_iso(forecast_vintage_utc, "forecast_vintage_utc")),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """SELECT location_id, latitude, longitude, forecast_vintage_utc,
+                              valid_start_utc, temperature_c, cloud_cover_percent,
+                              shortwave_radiation_wm2, wind_speed_100m_kmh, source, model
+                       FROM (
+                           SELECT *, ROW_NUMBER() OVER (
+                               PARTITION BY source, model, location_id, valid_start_utc
+                               ORDER BY forecast_vintage_utc DESC
+                           ) AS position
+                           FROM weather_forecasts
+                           WHERE valid_start_utc >= ? AND valid_start_utc < ?
+                       ) WHERE position = 1
+                       ORDER BY location_id, valid_start_utc""",
+                    (start, end),
+                ).fetchall()
+        return [
+            WeatherForecastPoint(
+                location_id=row[0], latitude=Decimal(row[1]), longitude=Decimal(row[2]),
+                forecast_vintage_utc=_parse_utc(row[3]), valid_start_utc=_parse_utc(row[4]),
+                temperature_c=Decimal(row[5]), cloud_cover_percent=Decimal(row[6]),
+                shortwave_radiation_wm2=Decimal(row[7]),
+                wind_speed_100m_kmh=Decimal(row[8]), source=row[9], model=row[10],
+            )
             for row in rows
         ]
 

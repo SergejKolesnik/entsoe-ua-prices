@@ -634,6 +634,7 @@ def _draw_collection_health(repository: SQLiteMarketRepository) -> None:
         ("Український РДН", (SOURCE,), today + timedelta(days=1)),
         ("Курс НБУ EUR", ("nbu_fx",), today + timedelta(days=1)),
         ("Обсяги РДН України", ("operator_volume",), today),
+        ("Прогноз погоди України", ("open_meteo",), today + timedelta(days=1)),
     ]
     groups.extend(
         (f"Ціни · {country_names[code]}", (f"entsoe_price_{code}",), today)
