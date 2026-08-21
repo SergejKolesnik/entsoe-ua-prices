@@ -101,6 +101,8 @@ The installer creates two independent tasks. The Ukrainian Operator task runs at
 
 Keep Windows configured for the Kyiv timezone. If the computer is off, `StartWhenAvailable` runs a missed task after startup. Collection outcomes are persisted per source; failures store only the exception type, never a response URL or token. Repeated successful runs are safe and do not duplicate records. The context task requires `ENTSOE_TOKEN` in the Windows user environment.
 
+For the published dashboard, `.github/workflows/refresh-market-data.yml` runs the same finite jobs in GitHub Actions. It requests the Ukrainian DAM at 14:15, 15:00, 16:00, and 17:00, then refreshes market context at 17:20 in the `Europe/Kyiv` timezone. Scheduled workflows run only from GitHub's default branch and require repository secrets named `DATABASE_URL` and `ENTSOE_TOKEN`. The workflow can also be started manually for `operator`, `context`, or `all` without exposing either secret in logs.
+
 After every successful refresh, the same finite job also freezes the first still-unknown delivery day as an immutable `baseline-v1` snapshot. Manual snapshot generation is available for diagnostics:
 
 ```powershell

@@ -1,0 +1,87 @@
+name: Refresh market data
+
+on:
+  schedule:
+    - cron: "15 14 * * *"
+      timezone: "Europe/Kyiv"
+    - cron: "0 15,16,17 * * *"
+      timezone: "Europe/Kyiv"
+    - cron: "20 17 * * *"
+      timezone: "Europe/Kyiv"
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Data group to refresh
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - operator
+          - context
+
+permissions:
+  contents: read
+
+concurrency:
+  group: market-data-refresh
+  cancel-in-progress: false
+
+jobs:
+  operator:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.task == 'all' || inputs.task == 'operator') ||
+      github.event_name == 'schedule' && github.event.schedule != '20 17 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify database configuration
+        shell: bash
+        run: test -n "$DATABASE_URL"
+      - name: Refresh Ukrainian DAM
+        shell: bash
+        run: |
+          set +e
+          python -m market_forecast.cli refresh-operator
+          status=$?
+          if [ "$status" -eq 2 ]; then
+            echo "The next delivery day is not published yet."
+            exit 0
+          fi
+          exit "$status"
+
+  context:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.task == 'all' || inputs.task == 'context') ||
+      github.event_name == 'schedule' && github.event.schedule == '20 17 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      ENTSOE_TOKEN: ${{ secrets.ENTSOE_TOKEN }}
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify secret configuration
+        shell: bash
+        run: test -n "$DATABASE_URL" && test -n "$ENTSOE_TOKEN"
+      - name: Refresh neighboring markets and context
+        run: python -m market_forecast.cli refresh-context

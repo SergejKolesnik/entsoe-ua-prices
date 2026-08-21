@@ -37,6 +37,7 @@ Phase 5: publication foundation. Durable ingestion, automated refresh, analytics
 - Page views never trigger source requests. `refresh_operator.py` refreshes tomorrow's Ukrainian results; `refresh_context.py` independently refreshes neighbor prices, NBU rates, completed flows, and recent volumes.
 - Windows Task Scheduler runs the Operator refresh at 14:15, 15:00, 16:00, and 17:00 and the context refresh at 17:20 local time. Retries remain idempotent and missed runs start when the computer becomes available.
 - Every automatic attempt is stored as `collected`, `unpublished`, or `failed`; the dashboard exposes freshness without storing raw exception text that could contain sensitive URLs.
+- Published refreshes are designed to run in GitHub Actions on Kyiv-local schedules and write directly to Neon. Windows Task Scheduler remains a local fallback, not a requirement for the public dashboard.
 - Every successful scheduled refresh freezes an immutable `baseline-v1` forecast for the first unknown delivery day. A target/model/version uniqueness contract prevents hindsight rewrites.
 - Forecast runs retain their issue time, training cutoff, model version, backtest metrics, hourly prediction, P80 bounds, method, and sample count.
 - The Monitoring tab scores frozen points against actual prices only after those facts exist and reports operational MAE/RMSE separately from historical backtest metrics.
