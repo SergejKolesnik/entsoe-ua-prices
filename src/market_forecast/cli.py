@@ -92,6 +92,12 @@ def build_parser() -> argparse.ArgumentParser:
     quality.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
     quality.add_argument("--source", required=True, choices=("entsoe", "operator"))
     quality.add_argument("--format", choices=("text", "json"), default="text")
+    report = subparsers.add_parser(
+        "export-hermes-report",
+        help="Write a sanitized, read-only daily JSON report.",
+    )
+    report.add_argument("--date", type=date.fromisoformat, dest="delivery_date")
+    report.add_argument("--output", required=True)
     return parser
 
 
@@ -402,6 +408,27 @@ def main(argv: list[str] | None = None) -> int:
                     f"periods={item.actual_periods}/{item.expected_periods}{values}"
                 )
         return 1 if any(item.status != "complete" for item in report) else 0
+    if args.command == "export-hermes-report":
+        from pathlib import Path
+        from market_forecast.config import Settings
+        from market_forecast.persistence import create_market_repository
+        from market_forecast.services import (
+            build_daily_report,
+            latest_operator_delivery_date,
+            write_daily_report,
+        )
+
+        settings = Settings.from_environment()
+        repository = create_market_repository(settings.database_path, settings.database_url)
+        repository.initialize()
+        delivery_date = args.delivery_date or latest_operator_delivery_date(repository)
+        report_payload = build_daily_report(repository, delivery_date)
+        write_daily_report(report_payload, Path(args.output))
+        print(
+            f"Hermes report written: date={delivery_date} "
+            f"status={report_payload['status']} output={args.output}"
+        )
+        return 0 if report_payload["status"] == "complete" else 2
     return 0
 
 
