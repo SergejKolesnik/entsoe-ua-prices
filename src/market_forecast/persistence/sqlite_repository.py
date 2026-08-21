@@ -568,6 +568,47 @@ class SQLiteMarketRepository:
             rows = connection.execute(query, parameters).fetchall()
         return [(_parse_utc(row[0]), Decimal(row[1])) for row in rows]
 
+    def list_price_details(
+        self,
+        source: str,
+        period_start_utc: datetime,
+        period_end_utc: datetime,
+        bidding_zone: str | None = None,
+    ) -> list[
+        tuple[datetime, datetime, int, Decimal, str, str, str, Decimal | None, datetime]
+    ]:
+        """Return validated price fields needed by read-only report consumers."""
+
+        start = _utc_iso(period_start_utc, "period_start_utc")
+        end = _utc_iso(period_end_utc, "period_end_utc")
+        with closing(self._connect()) as connection:
+            query = """SELECT delivery_start_utc, delivery_end_utc,
+                              settlement_period, price, currency, bidding_zone,
+                              market, volume_mwh, ingested_at_utc
+                       FROM market_prices
+                       WHERE source = ? AND delivery_start_utc >= ?
+                         AND delivery_start_utc < ?"""
+            parameters: list[str] = [source, start, end]
+            if bidding_zone is not None:
+                query += " AND bidding_zone = ?"
+                parameters.append(bidding_zone)
+            query += " ORDER BY delivery_start_utc"
+            rows = connection.execute(query, parameters).fetchall()
+        return [
+            (
+                _parse_utc(row[0]),
+                _parse_utc(row[1]),
+                int(row[2]),
+                Decimal(row[3]),
+                row[4],
+                row[5],
+                row[6],
+                Decimal(row[7]) if row[7] is not None else None,
+                _parse_utc(row[8]),
+            )
+            for row in rows
+        ]
+
     def available_period(
         self, source: str, bidding_zone: str | None = None
     ) -> tuple[datetime, datetime] | None:

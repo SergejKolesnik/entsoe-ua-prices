@@ -145,6 +145,48 @@ Individual market codes are `PL`, `SK`, `HU`, and `RO`. Each market keeps one st
 
 Neighbor prices remain in EUR/MWh. The Ukrainian curve and cross-border spread are intentionally not converted until an effective-dated official NBU exchange-rate source is implemented. Moldova is also excluded from this first adapter because a stable ENTSO-E day-ahead bidding-zone price feed has not yet been verified.
 
+## Read-only JSON for Hermes
+
+Hermes must not receive `DATABASE_URL` and must not scrape Streamlit. The additive
+`export-hermes-report` command reads the established repository API and writes a
+sanitized schema-versioned JSON document:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m market_forecast.cli export-hermes-report `
+  --date 2026-08-22 `
+  --output data\exports\2026-08-22.json
+```
+
+Omit `--date` to export the latest stored Ukrainian delivery day. Exit code `0`
+means the Ukrainian day is complete; exit code `2` means the file was still
+written but its status is `incomplete`, `unavailable`, or `stale`. Missing values
+remain JSON `null` and are never replaced with zero.
+
+The `Publish Hermes report JSON` workflow runs after the daily context window and
+publishes two files to the dedicated `hermes-report` branch:
+
+- `latest.json` for the current consumer;
+- `v1/YYYY-MM-DD/<generated-at>.json` as an immutable dated snapshot.
+
+The repository and source market data are public, so this export is intentionally
+public and contains no secrets, source URLs, database identifiers, raw errors, or
+private metadata. GitHub's static file service supplies CDN/anti-abuse controls;
+Hermes should fetch once per daily report, not poll continuously. If the repository
+is made private later, use a fine-grained GitHub token with read-only Contents
+permission instead of changing the database design.
+
+After the workflow has published once, Hermes should read:
+
+```text
+https://raw.githubusercontent.com/SergejKolesnik/entsoe-ua-prices/hermes-report/latest.json
+```
+
+Hermes must reject unknown `schema_version` values, require `status == "complete"`
+for confident numeric commentary, verify `delivery_date`, and treat every context
+section according to its own `status`. Full field semantics are documented in
+`docs/hermes-report-contract.md`.
+
 ## Data-source responsibilities
 
 - `OperatorMarketSource` discovers published results and returns raw source metadata.
