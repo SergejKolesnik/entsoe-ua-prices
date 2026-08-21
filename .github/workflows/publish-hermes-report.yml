@@ -65,7 +65,7 @@ jobs:
             git switch -c hermes-report
           else
             git switch --orphan hermes-report
-            git rm -rf .
+            git rm -rf --ignore-unmatch .
           fi
           mkdir -p "v1/$delivery_date"
           cp /tmp/hermes-report.json "v1/$delivery_date/$version_name.json"
