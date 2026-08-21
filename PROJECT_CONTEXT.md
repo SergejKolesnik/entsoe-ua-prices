@@ -1,6 +1,6 @@
 # Ukraine Energy Market Forecast — Project Context
 
-Last updated: 2026-08-20
+Last updated: 2026-08-21
 
 ## Purpose
 
@@ -41,6 +41,8 @@ Phase 5: publication foundation. Durable ingestion, automated refresh, analytics
 - Every successful scheduled refresh freezes an immutable `baseline-v1` forecast for the first unknown delivery day. A target/model/version uniqueness contract prevents hindsight rewrites.
 - Forecast runs retain their issue time, training cutoff, model version, backtest metrics, hourly prediction, P80 bounds, method, and sample count.
 - The Monitoring tab scores frozen points against actual prices only after those facts exist and reports operational MAE/RMSE separately from historical backtest metrics.
+- The Price Drivers tab is observation-only: it decomposes day-over-day price movement by time-of-day regime and labels volume and neighbor-price evidence separately from uncollected weather, load, and generation hypotheses.
+- Open-Meteo forecast vintages are collected for six explicit Ukrainian regional points. Raw JSON and every hourly collection vintage are retained; no national weighting or causal interpretation is applied yet.
 - Neighbor-market support is additive and uses explicit ENTSO-E bidding zones for PL, SK, HU, and RO. Database reads and uniqueness remain isolated by bidding zone.
 - ENTSO-E day-ahead prices accept validated 15/30/60-minute intervals. The comparison UI aggregates only complete sub-hourly groups to UTC-aligned hourly averages because SDAC moved to 15-minute MTU from delivery day 2025-10-01.
 - Neighbor prices remain in EUR/MWh; no Ukrainian spread is displayed until historical official NBU rates are implemented. Moldova remains pending source verification.
@@ -55,7 +57,7 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
 2. Continue the staged history from the validated baseline: 30 days of neighbor prices,
    366 NBU EUR rates, 367 days of Ukrainian prices/volumes, and six fully covered flow days.
    One incomplete ENTSO-E Poland export day is intentionally excluded from aggregates.
-3. Measure lagged relationships between Ukrainian prices, neighbor prices, flows, and volumes.
+3. Apply and validate the weather schema migration, begin accumulating daily forecast vintages, then expose radiation, wind, cloud, and temperature as evidence in the Price Drivers tab.
 4. Extend physical-flow history in controlled batches.
 5. Add effective-dated price caps and calendar features as a separate shadow candidate.
 6. Add regression fixtures for documented 23/25-period operator days when available.

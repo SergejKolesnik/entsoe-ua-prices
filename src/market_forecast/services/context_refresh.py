@@ -11,7 +11,14 @@ from market_forecast.neighbor_markets import NEIGHBOR_MARKETS
 from market_forecast.parsers import parse_operator_market_workbook
 from market_forecast.persistence import RawArtifactStore, create_market_repository
 from market_forecast.services.collection import MarketCollectionService
-from market_forecast.sources import EntsoeSource, NbuExchangeRateSource, OperatorMarketSource
+from market_forecast.sources import (
+    EntsoeSource,
+    NbuExchangeRateSource,
+    OpenMeteoSource,
+    OperatorMarketSource,
+    parse_open_meteo_forecast,
+)
+from market_forecast.weather_locations import WEATHER_LOCATIONS
 
 
 KYIV = ZoneInfo("Europe/Kyiv")
@@ -67,6 +74,7 @@ def refresh_market_context(
         timeout_seconds=settings.request_timeout_seconds,
     )
     nbu = NbuExchangeRateSource(timeout_seconds=settings.request_timeout_seconds)
+    weather = OpenMeteoSource(timeout_seconds=settings.request_timeout_seconds)
     results: list[ContextRefreshResult] = []
 
     def day_bounds(delivery_date: date) -> tuple[datetime, datetime]:
@@ -125,6 +133,19 @@ def refresh_market_context(
             nbu.fetch_eur_rates(dates.today, dates.tomorrow), attempted_at
         ),
     )
+
+    def refresh_weather_forecast() -> int:
+        raw = weather.fetch(WEATHER_LOCATIONS, forecast_days=3)
+        vintage = attempted_at.replace(minute=0, second=0, microsecond=0)
+        points = parse_open_meteo_forecast(raw.content, WEATHER_LOCATIONS, vintage)
+        artifact = service.artifact_store.save(
+            raw.content, "open_meteo", dates.tomorrow, "json"
+        )
+        return repository.store_weather_forecast(
+            artifact, raw.source_url, attempted_at, points
+        )
+
+    execute("open_meteo", dates.tomorrow, refresh_weather_forecast)
     for market in NEIGHBOR_MARKETS:
         execute(
             f"entsoe_price_{market.code}",
