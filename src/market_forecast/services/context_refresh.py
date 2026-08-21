@@ -8,10 +8,9 @@ from zoneinfo import ZoneInfo
 
 from market_forecast.config import Settings
 from market_forecast.neighbor_markets import NEIGHBOR_MARKETS
-from market_forecast.parsers import parse_operator_market_workbook
 from market_forecast.persistence import RawArtifactStore, create_market_repository
 from market_forecast.services.collection import MarketCollectionService
-from market_forecast.sources import EntsoeSource, NbuExchangeRateSource
+from market_forecast.sources import EntsoeSource, NbuExchangeRateSource, OperatorMarketSource
 
 
 KYIV = ZoneInfo("Europe/Kyiv")
@@ -121,12 +120,14 @@ def refresh_market_context(
                 ).inserted_records,
             )
 
-    def enrich_recent_volumes() -> int:
-        updated = 0
-        for delivery_date, path in repository.list_latest_artifact_paths("operator_market")[-3:]:
-            records = parse_operator_market_workbook(path.read_bytes(), delivery_date)
-            updated += repository.enrich_price_volumes(records)
-        return updated
+    def refresh_operator_volumes() -> int:
+        result = service.collect_operator_artifact(
+            dates.today,
+            OperatorMarketSource(timeout_seconds=settings.request_timeout_seconds),
+        )
+        if result is None:
+            raise RuntimeError("Current Operator workbook is not published")
+        return result.inserted_records
 
-    execute("operator_volume", dates.today, enrich_recent_volumes)
+    execute("operator_volume", dates.today, refresh_operator_volumes)
     return results
