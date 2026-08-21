@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from market_forecast.config import Settings
@@ -69,6 +69,32 @@ def refresh_market_context(
     nbu = NbuExchangeRateSource(timeout_seconds=settings.request_timeout_seconds)
     results: list[ContextRefreshResult] = []
 
+    def day_bounds(delivery_date: date) -> tuple[datetime, datetime]:
+        start = datetime.combine(delivery_date, time.min, KYIV).astimezone(timezone.utc)
+        end = datetime.combine(
+            delivery_date + timedelta(days=1), time.min, KYIV
+        ).astimezone(timezone.utc)
+        return start, end
+
+    def refresh_neighbor_price(market) -> int:
+        start, end = day_bounds(dates.today)
+        if repository.list_prices("entsoe", start, end, market.bidding_zone_eic):
+            return 0
+        return service.collect_entsoe(
+            dates.today,
+            entsoe,
+            market.bidding_zone_eic,
+        ).inserted_records
+
+    def refresh_border_flow(source_zone: str, target_zone: str) -> int:
+        start, end = day_bounds(dates.yesterday)
+        existing = repository.list_flows(start, end)
+        if any(row[2] == source_zone and row[3] == target_zone for row in existing):
+            return 0
+        return service.collect_entsoe_flow(
+            dates.yesterday, entsoe, source_zone, target_zone
+        ).inserted_records
+
     def execute(source_name: str, delivery_date: date, operation) -> None:
         try:
             records = int(operation())
@@ -103,11 +129,7 @@ def refresh_market_context(
         execute(
             f"entsoe_price_{market.code}",
             dates.today,
-            lambda item=market: service.collect_entsoe(
-                dates.today,
-                entsoe,
-                item.bidding_zone_eic,
-            ).inserted_records,
+            lambda item=market: refresh_neighbor_price(item),
         )
         for source_zone, target_zone, direction in (
             (market.bidding_zone_eic, UKRAINE_ZONE, "import"),
@@ -116,9 +138,9 @@ def refresh_market_context(
             execute(
                 f"entsoe_flow_{market.code}_{direction}",
                 dates.yesterday,
-                lambda source=source_zone, target=target_zone: service.collect_entsoe_flow(
-                    dates.yesterday, entsoe, source, target
-                ).inserted_records,
+                lambda source=source_zone, target=target_zone: refresh_border_flow(
+                    source, target
+                ),
             )
 
     def refresh_operator_volumes() -> int:
