@@ -20,6 +20,10 @@ if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
 from market_forecast.config import Settings  # noqa: E402
+from market_forecast.analysis import (  # noqa: E402
+    build_price_driver_comparison,
+    neighbor_daily_change,
+)
 from market_forecast.forecasting import build_day_forecast, walk_forward_backtest  # noqa: E402
 from market_forecast.neighbor_markets import NEIGHBOR_MARKETS  # noqa: E402
 from market_forecast.persistence import (  # noqa: E402
@@ -181,6 +185,28 @@ def _daily_summary(frame: pd.DataFrame) -> pd.DataFrame:
         .agg(minimum="min", average="mean", maximum="max")
         .sort_values("delivery_date")
     )
+
+
+@st.cache_data(ttl=60)
+def _load_price_volumes(
+    database_path: str, date_from: date, date_to: date
+) -> pd.DataFrame:
+    repository = _repository(database_path)
+    start = datetime.combine(date_from, time.min, KYIV).astimezone(timezone.utc)
+    end = datetime.combine(date_to + timedelta(days=1), time.min, KYIV).astimezone(
+        timezone.utc
+    )
+    rows = repository.list_price_volumes(SOURCE, start, end)
+    frame = pd.DataFrame(rows, columns=["delivery_start_utc", "volume_mwh"])
+    if frame.empty:
+        return frame
+    frame["delivery_start"] = pd.to_datetime(
+        frame["delivery_start_utc"], utc=True
+    ).dt.tz_convert("Europe/Kyiv")
+    frame["delivery_date"] = frame["delivery_start"].dt.date
+    frame["hour"] = frame["delivery_start"].dt.hour
+    frame["volume_mwh"] = pd.to_numeric(frame["volume_mwh"], errors="coerce")
+    return frame
 
 
 def _chart_layout(height: int, y_title: str) -> dict:
@@ -797,6 +823,144 @@ def _draw_market_volume(database_path: Path, selected_date: date) -> None:
     st.plotly_chart(figure, width="stretch")
 
 
+def _draw_price_drivers(
+    database_path: Path,
+    frame: pd.DataFrame,
+    date_from: date,
+    date_to: date,
+    selected_date: date,
+) -> None:
+    """Explain observed price movement without presenting correlation as causation."""
+
+    volumes = _load_price_volumes(str(database_path), date_from, date_to)
+    comparison = build_price_driver_comparison(frame, volumes, selected_date)
+    st.markdown("### Що змінило ціну")
+    st.caption(
+        "Перший діагностичний рівень: підтверджені ціни та обсяги. "
+        "Погодні й генераційні фактори будуть додані окремо з часом доступності даних."
+    )
+    if comparison is None:
+        st.info("Для порівняння потрібні вибрана доба та хоча б одна попередня доба.")
+        return
+
+    percent_change = comparison["percent_change"]
+    volume_change = comparison["volume_change_percent"]
+    metrics = st.columns(4)
+    metrics[0].metric(
+        "Середня ціна",
+        f"{comparison['current_average']:,.0f} грн/МВт·год",
+        f"{percent_change:+.1f}% до {comparison['previous_date'].strftime('%d.%m')}",
+    )
+    metrics[1].metric(
+        "Зміна ціни",
+        f"{comparison['absolute_change']:+,.0f} грн/МВт·год",
+    )
+    metrics[2].metric(
+        "Обсяг РДН",
+        (
+            f"{comparison['current_volume']:,.0f} МВт·год"
+            if comparison["current_volume"] is not None
+            else "Немає даних"
+        ),
+        f"{volume_change:+.1f}%" if volume_change is not None else None,
+    )
+    metrics[3].metric(
+        "Години ≤ 1 000 грн",
+        str(comparison["low_price_hours"]),
+        "ціновий надлишок" if comparison["low_price_hours"] else "не зафіксовано",
+    )
+
+    st.markdown("#### Де саме відбулася зміна")
+    segments = comparison["segments"]
+    if not segments.empty:
+        segment_figure = go.Figure()
+        segment_figure.add_trace(
+            go.Bar(
+                x=segments["Період"],
+                y=segments["Попередня ціна"],
+                name=comparison["previous_date"].strftime("%d.%m"),
+                marker_color=MUTED,
+            )
+        )
+        segment_figure.add_trace(
+            go.Bar(
+                x=segments["Період"],
+                y=segments["Поточна ціна"],
+                name=selected_date.strftime("%d.%m"),
+                marker_color=AMBER,
+            )
+        )
+        segment_figure.update_layout(
+            **_chart_layout(340, "грн/МВт·год"), barmode="group"
+        )
+        st.plotly_chart(segment_figure, width="stretch")
+        st.dataframe(
+            segments,
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "Поточна ціна": st.column_config.NumberColumn(format="%.0f грн/МВт·год"),
+                "Попередня ціна": st.column_config.NumberColumn(format="%.0f грн/МВт·год"),
+                "Зміна": st.column_config.NumberColumn(format="%+.0f грн/МВт·год"),
+                "Зміна, %": st.column_config.NumberColumn(format="%+.1f%%"),
+            },
+        )
+
+    evidence: list[dict[str, str]] = []
+    if volume_change is not None:
+        evidence.append(
+            {
+                "Сигнал": "Обсяг торгів РДН",
+                "Що бачимо": f"{volume_change:+.1f}% до попередньої доступної доби",
+                "Статус": "Підтверджено",
+                "Інтерпретація": (
+                    "Менше закуплено саме на РДН; це не дорівнює зміні загального "
+                    "споживання енергосистеми."
+                ),
+            }
+        )
+
+    neighbor_frame = _load_neighbor_prices(str(database_path), date_from, date_to)
+    neighbor_change = neighbor_daily_change(
+        neighbor_frame, selected_date, comparison["previous_date"]
+    )
+    if neighbor_change is not None:
+        direction = "зросли" if neighbor_change > 0 else "знизилися"
+        evidence.append(
+            {
+                "Сигнал": "Сусідні ринки",
+                "Що бачимо": f"Медіанна зміна {neighbor_change:+.1f}%",
+                "Статус": "Підтверджено",
+                "Інтерпретація": (
+                    f"Ціни сусідів у середньому {direction}; це допомагає відрізнити "
+                    "внутрішню українську подію від загальнорегіонального руху."
+                ),
+            }
+        )
+    evidence.extend(
+        [
+            {
+                "Сигнал": "Сонячна та вітрова генерація",
+                "Що бачимо": "Ще не завантажено",
+                "Статус": "Гіпотеза",
+                "Інтерпретація": "Не робимо причинного висновку лише з форми цінового графіка.",
+            },
+            {
+                "Сигнал": "Доступність блоків і прогноз навантаження",
+                "Що бачимо": "Ще не завантажено",
+                "Статус": "Гіпотеза",
+                "Інтерпретація": "Потрібні дані, відомі учасникам до закриття торгів.",
+            },
+        ]
+    )
+    st.markdown("#### Таблиця доказів")
+    st.dataframe(pd.DataFrame(evidence), width="stretch", hide_index=True)
+    st.caption(
+        "Підтверджено — значення є в нашій базі. Гіпотеза — можливий фактор, "
+        "якому ще бракує окремого надійного джерела."
+    )
+
+
 def _draw_neighbor_markets(
     database_path: Path,
     date_from: date,
@@ -1151,10 +1315,11 @@ def main() -> None:
         st.warning("У вибраному періоді немає даних.")
         return
 
-    overview, history, quality, forecast, monitoring, neighbors = st.tabs(
+    overview, history, drivers, quality, forecast, monitoring, neighbors = st.tabs(
         [
             "Огляд дня",
             "Історія",
+            "Фактори ціни",
             "Якість даних",
             "Прогноз",
             "Моніторинг",
@@ -1166,6 +1331,10 @@ def main() -> None:
         _draw_market_volume(settings.database_path, selected_date)
     with history:
         _draw_history(frame)
+    with drivers:
+        _draw_price_drivers(
+            settings.database_path, frame, date_from, date_to, selected_date
+        )
     with quality:
         _draw_quality(settings.database_path, date_from, date_to)
     with forecast:

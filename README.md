@@ -112,6 +112,8 @@ python -m market_forecast.cli snapshot-baseline
 
 The **Моніторинг** tab first shows freshness for the Ukrainian DAM, NBU rate, Operator volumes, four neighbor-price feeds, and four bidirectional border-flow groups. It then compares each frozen hourly vintage with facts only after they arrive, showing forecast coverage, observed MAE/RMSE, the original P80 band, and a permanent run journal. Repeated scheduler attempts return the existing identical snapshot; they never rewrite a forecast after the fact.
 
+The **Фактори ціни** tab is a transparent diagnostic, not a causal model. It compares the selected day with the latest earlier observed day, separates night, morning, solar hours, evening peak, and late evening, and reports confirmed DAM-volume and neighboring-market movements. Weather, generation availability, and load remain explicitly marked as hypotheses until timestamped source data is collected.
+
 ## Neighboring EU markets
 
 The **Сусідні ринки** tab is prepared for Poland, Slovakia, Hungary, and Romania using their verified ENTSO-E bidding-zone identities. Configure a newly issued personal token, then run a controlled backfill:
