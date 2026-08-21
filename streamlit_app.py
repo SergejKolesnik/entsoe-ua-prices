@@ -21,7 +21,10 @@ if str(SOURCE_ROOT) not in sys.path:
 
 from market_forecast.config import Settings  # noqa: E402
 from market_forecast.analysis import (  # noqa: E402
+    build_daily_explanation,
+    build_hourly_price_flow_comparison,
     build_price_driver_comparison,
+    daily_net_import_comparison,
     neighbor_daily_change,
 )
 from market_forecast.forecasting import build_day_forecast, walk_forward_backtest  # noqa: E402
@@ -848,27 +851,35 @@ def _draw_price_drivers(
     volume_change = comparison["volume_change_percent"]
     metrics = st.columns(4)
     metrics[0].metric(
-        "Середня ціна",
-        f"{comparison['current_average']:,.0f} грн/МВт·год",
+        "Середня ціна, грн/МВт·год",
+        f"{comparison['current_average']:,.0f}",
         f"{percent_change:+.1f}% до {comparison['previous_date'].strftime('%d.%m')}",
     )
     metrics[1].metric(
-        "Зміна ціни",
-        f"{comparison['absolute_change']:+,.0f} грн/МВт·год",
+        "Зміна, грн/МВт·год",
+        f"{comparison['absolute_change']:+,.0f}",
     )
     metrics[2].metric(
-        "Обсяг РДН",
+        "Обсяг РДН, МВт·год",
         (
-            f"{comparison['current_volume']:,.0f} МВт·год"
+            f"{comparison['current_volume']:,.0f}"
             if comparison["current_volume"] is not None
             else "Немає даних"
         ),
         f"{volume_change:+.1f}%" if volume_change is not None else None,
     )
     metrics[3].metric(
-        "Години ≤ 1 000 грн",
-        str(comparison["low_price_hours"]),
-        "ціновий надлишок" if comparison["low_price_hours"] else "не зафіксовано",
+        f"До середнього за {comparison['seven_day_count']} днів",
+        (
+            f"{comparison['seven_day_change_percent']:+.1f}%"
+            if comparison["seven_day_change_percent"] is not None
+            else "Немає даних"
+        ),
+        (
+            f"середнє {comparison['seven_day_average']:,.0f}"
+            if comparison["seven_day_average"] is not None
+            else None
+        ),
     )
 
     st.markdown("#### Де саме відбулася зміна")
@@ -938,6 +949,95 @@ def _draw_price_drivers(
                 ),
             }
         )
+
+    flow_frame = _load_cross_border_flows(str(database_path), date_from, date_to)
+    complete_flow_rows = pd.DataFrame()
+    if not flow_frame.empty:
+        coverage = flow_frame.groupby(
+            ["delivery_date", "market_name", "direction"], as_index=False
+        )["interval_hours"].sum()
+        complete_dates = coverage.groupby("delivery_date").filter(
+            lambda group: len(group) == len(NEIGHBOR_MARKETS) * 2
+            and (group["interval_hours"] >= 23.99).all()
+        )["delivery_date"].unique()
+        complete_flow_rows = flow_frame[
+            flow_frame["delivery_date"].isin(complete_dates)
+        ].copy()
+    flow_change = daily_net_import_comparison(
+        complete_flow_rows, selected_date, comparison["previous_date"]
+    )
+    if flow_change is not None:
+        evidence.append(
+            {
+                "Сигнал": "Фізичні перетоки",
+                "Що бачимо": (
+                    "Чистий імпорт "
+                    f"{flow_change['current_net_import_mwh']:+,.0f} МВт·год; "
+                    f"зміна {flow_change['absolute_change_mwh']:+,.0f} МВт·год"
+                ),
+                "Статус": "Підтверджено",
+                "Інтерпретація": (
+                    "Показано лише коли обидві доби повністю покриті всіма "
+                    "кордонами й напрямками. Збіг із ціною не доводить вплив."
+                ),
+            }
+        )
+
+    st.markdown("#### Короткий висновок дня")
+    st.info(build_daily_explanation(comparison, neighbor_change, flow_change))
+
+    hourly = build_hourly_price_flow_comparison(
+        frame,
+        complete_flow_rows,
+        selected_date,
+        comparison["previous_date"],
+    )
+    if not hourly.empty:
+        st.markdown("#### Погодинне зіставлення")
+        hourly_figure = go.Figure()
+        hourly_figure.add_trace(go.Scatter(
+            x=hourly["hour"],
+            y=hourly["current_price"],
+            name=selected_date.strftime("Ціна %d.%m"),
+            line=dict(color=AMBER, width=3),
+            yaxis="y",
+        ))
+        hourly_figure.add_trace(go.Scatter(
+            x=hourly["hour"],
+            y=hourly["previous_price"],
+            name=comparison["previous_date"].strftime("Ціна %d.%m"),
+            line=dict(color=MUTED, width=2, dash="dot"),
+            yaxis="y",
+        ))
+        if hourly["net_import_mwh"].notna().any():
+            hourly_figure.add_trace(go.Bar(
+                x=hourly["hour"],
+                y=hourly["net_import_mwh"],
+                name="Чистий імпорт (+) / експорт (−)",
+                marker_color=BLUE,
+                opacity=0.35,
+                yaxis="y2",
+            ))
+        hourly_layout = _chart_layout(390, "грн/МВт·год")
+        hourly_layout.update(
+            yaxis2=dict(
+                title="МВт·год",
+                overlaying="y",
+                side="right",
+                showgrid=False,
+                zeroline=True,
+            ),
+            legend=dict(orientation="h", y=1.14),
+            barmode="relative",
+        )
+        hourly_figure.update_layout(**hourly_layout)
+        hourly_figure.update_xaxes(title="Година за Києвом", dtick=2)
+        st.plotly_chart(hourly_figure, width="stretch")
+        if flow_change is None:
+            st.caption(
+                "Перетоки не накладено: потрібне повне покриття вибраної та "
+                "попередньої доби всіма кордонами й напрямками."
+            )
     evidence.extend(
         [
             {
