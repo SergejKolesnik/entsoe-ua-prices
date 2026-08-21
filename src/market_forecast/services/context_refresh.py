@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from market_forecast.config import Settings
 from market_forecast.neighbor_markets import NEIGHBOR_MARKETS
+from market_forecast.parsers import parse_operator_market_workbook
 from market_forecast.persistence import RawArtifactStore, create_market_repository
 from market_forecast.services.collection import MarketCollectionService
 from market_forecast.sources import EntsoeSource, NbuExchangeRateSource, OperatorMarketSource
@@ -121,13 +122,13 @@ def refresh_market_context(
             )
 
     def refresh_operator_volumes() -> int:
-        result = service.collect_operator_artifact(
-            dates.today,
-            OperatorMarketSource(timeout_seconds=settings.request_timeout_seconds),
-        )
-        if result is None:
+        source = OperatorMarketSource(timeout_seconds=settings.request_timeout_seconds)
+        observation = source.discover(dates.today)
+        if observation is None:
             raise RuntimeError("Current Operator workbook is not published")
-        return result.inserted_records
+        raw = source.download(observation)
+        records = parse_operator_market_workbook(raw.content, dates.today)
+        return repository.enrich_price_volumes(records)
 
     execute("operator_volume", dates.today, refresh_operator_volumes)
     return results
