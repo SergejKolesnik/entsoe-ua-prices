@@ -19,7 +19,7 @@ Phase 5: publication foundation. Durable ingestion, automated refresh, analytics
 - Git-tracked CSV is retired as operational storage.
 - Storage selection is configuration-driven: Neon is used only when `DATABASE_URL` is present, while SQLite remains the local fallback.
 - Database credentials are runtime secrets and must never be committed or displayed in the dashboard.
-- Streamlit Community Cloud installs the project through the root `requirements.txt`, which delegates dependency ownership to `pyproject.toml`.
+- Streamlit Community Cloud installs runtime packages from the explicit root `requirements.txt`; keep it aligned with `pyproject.toml`.
 - The old prototype is preserved by Git history and the `prototype-v0` tag.
 - The research PDF in `docs/references/` is retained as a theoretical reference. Its reported monthly statistics are not considered reproduced until the underlying dataset and analysis code are available.
 - Effective-dated price-cap regimes and forecast feature `available_at` timestamps are mandatory parts of the future data model.
