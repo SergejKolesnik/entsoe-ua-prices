@@ -95,6 +95,36 @@ class PersistenceTests(unittest.TestCase):
             self.assertEqual(inserted, 0)
             self.assertEqual(repository.count_prices(), 1)
 
+    def test_repository_treats_equivalent_utc_formats_as_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = SQLiteMarketRepository(root / "market.sqlite3")
+            repository.initialize()
+            artifact = RawArtifactStore(root / "raw").save(
+                b"document", "entsoe", date(2026, 8, 18), "xml"
+            )
+            arguments = dict(
+                artifact=artifact,
+                source="entsoe",
+                delivery_date=date(2026, 8, 18),
+                source_url="https://example.test/api",
+                content_type="application/xml",
+                fetched_at_utc=datetime(2026, 8, 17, 12, tzinfo=timezone.utc),
+                prices=[make_price()],
+                validation_status="validated",
+            )
+            repository.store_collection(**arguments)
+            with closing(sqlite3.connect(root / "market.sqlite3")) as connection:
+                connection.execute(
+                    "UPDATE market_prices SET delivery_end_utc = ?",
+                    ("2026-08-18T01:00:00+00:00",),
+                )
+
+            _, inserted = repository.store_collection(**arguments)
+
+            self.assertEqual(inserted, 0)
+            self.assertEqual(repository.count_prices(), 1)
+
     def test_repository_rejects_conflicting_retry(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
