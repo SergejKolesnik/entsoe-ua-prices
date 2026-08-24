@@ -143,6 +143,10 @@ $env:ENTSOE_TOKEN = "new-token"
 python -m market_forecast.cli backfill-neighbors --market all --from 2025-08-19 --to 2026-08-20
 ```
 
+For production Neon, the manual `Refresh market data` workflow exposes a bounded
+`backfill_neighbors` task. Each invocation is limited to 31 inclusive days and
+uses GitHub secrets; no token or database URL is entered as a workflow input.
+
 Load official NBU EUR rates and directed ENTSO-E physical flows for the same period:
 
 ```powershell
