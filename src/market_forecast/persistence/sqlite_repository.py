@@ -252,7 +252,20 @@ class SQLiteMarketRepository:
                         str(item.volume_mwh) if item.volume_mwh is not None else None,
                         item.source_revision,
                     )
-                    if existing != expected and existing[:4] == expected[:4] and existing[4] is None:
+                    price_fields_match = (
+                        existing[0] == expected[0]
+                        and existing[1] == expected[1]
+                        and _decimal_text_equal(existing[2], expected[2])
+                        and existing[3] == expected[3]
+                    )
+                    volumes_match = _optional_decimal_text_equal(
+                        existing[4], expected[4]
+                    )
+                    if (
+                        price_fields_match
+                        and not volumes_match
+                        and existing[4] is None
+                    ):
                         connection.execute(
                             """UPDATE market_prices
                                SET volume_mwh = ?, source_revision = COALESCE(?, source_revision)
@@ -264,11 +277,11 @@ class SQLiteMarketRepository:
                                 _utc_iso(item.delivery_start_utc, "delivery_start_utc"),
                             ),
                         )
-                    elif existing[:4] != expected[:4]:
+                    elif not price_fields_match:
                         raise ValueError(
                             "Conflicting market price already exists for the same source interval"
                         )
-                    elif existing[4] != expected[4]:
+                    elif not volumes_match:
                         raise ValueError(
                             "Conflicting market volume already exists for the same source interval"
                         )
@@ -892,3 +905,20 @@ def _utc_iso(value: datetime, name: str) -> str:
 def _parse_utc(value: str) -> datetime:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     return parsed.astimezone(timezone.utc)
+
+
+def _decimal_text_equal(left: object, right: object) -> bool:
+    """Compare persisted decimal representations by value, not display scale."""
+
+    try:
+        return Decimal(str(left)) == Decimal(str(right))
+    except (ArithmeticError, ValueError):
+        return False
+
+
+def _optional_decimal_text_equal(left: object, right: object) -> bool:
+    """Compare nullable decimal representations without treating missing as zero."""
+
+    if left is None or right is None:
+        return left is right
+    return _decimal_text_equal(left, right)
