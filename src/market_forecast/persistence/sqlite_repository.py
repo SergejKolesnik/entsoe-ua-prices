@@ -822,7 +822,7 @@ class SQLiteMarketRepository:
                     )
                     for timestamp, predicted, low, high, method, sample_count in point_rows
                 )
-                if stored != expected:
+                if not _forecast_point_rows_equal(stored, expected):
                     raise ValueError("Conflicting immutable forecast snapshot already exists")
         return run_id, created
 
@@ -945,3 +945,23 @@ def _price_conflict_fields(
     if existing[3] != expected[3]:
         conflicts.append("currency")
     return conflicts
+
+
+def _forecast_point_rows_equal(
+    stored: list[tuple[object, ...]], expected: list[tuple[object, ...]]
+) -> bool:
+    """Compare immutable forecast points by typed value across SQL backends."""
+
+    if len(stored) != len(expected):
+        return False
+    for existing, current in zip(stored, expected, strict=True):
+        if not _utc_text_equal(existing[0], current[0]):
+            return False
+        if any(
+            not _decimal_text_equal(existing[index], current[index])
+            for index in (1, 2, 3)
+        ):
+            return False
+        if existing[4] != current[4] or existing[5] != current[5]:
+            return False
+    return True

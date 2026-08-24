@@ -290,6 +290,25 @@ class PersistenceTests(unittest.TestCase):
             self.assertEqual(run_id, repeated_id)
             self.assertEqual(repository.list_forecast_runs()[0][0], run_id)
             self.assertEqual(repository.list_forecast_points(run_id)[0][1], Decimal("5000"))
+            with closing(sqlite3.connect(Path(directory) / "market.sqlite3")) as connection:
+                connection.execute(
+                    """UPDATE forecast_points
+                       SET delivery_start_utc = ?, predicted_price = ?,
+                           interval_low = ?, interval_high = ?
+                       WHERE forecast_run_id = ?""",
+                    (
+                        "2026-08-20T00:00:00+00:00",
+                        "5000.0000",
+                        "3000.0000",
+                        "7000.0000",
+                        run_id,
+                    ),
+                )
+            scaled_id, scaled_created = repository.store_forecast_snapshot(
+                points=points, **common
+            )
+            self.assertEqual(scaled_id, run_id)
+            self.assertFalse(scaled_created)
             changed = [
                 (
                     timestamp,
