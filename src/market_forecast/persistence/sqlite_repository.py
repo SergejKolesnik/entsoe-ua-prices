@@ -264,9 +264,17 @@ class SQLiteMarketRepository:
                                 _utc_iso(item.delivery_start_utc, "delivery_start_utc"),
                             ),
                         )
-                    elif existing != expected:
+                    elif existing[:4] != expected[:4]:
                         raise ValueError(
                             "Conflicting market price already exists for the same source interval"
+                        )
+                    elif existing[4] != expected[4]:
+                        raise ValueError(
+                            "Conflicting market volume already exists for the same source interval"
+                        )
+                    elif existing[5] != expected[5]:
+                        raise ValueError(
+                            "Conflicting source revision already exists for the same source interval"
                         )
         return artifact_id, inserted
 

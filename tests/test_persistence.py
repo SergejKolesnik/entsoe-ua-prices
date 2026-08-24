@@ -2,6 +2,7 @@ import sqlite3
 import tempfile
 import unittest
 from contextlib import closing
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -112,6 +113,35 @@ class PersistenceTests(unittest.TestCase):
 
             self.assertEqual(inserted, 0)
             self.assertEqual(repository.count_prices(), 1)
+
+    def test_repository_distinguishes_volume_and_revision_conflicts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = SQLiteMarketRepository(root / "market.sqlite3")
+            repository.initialize()
+            artifact = RawArtifactStore(root / "raw").save(
+                b"document", "entsoe", date(2026, 8, 18), "xml"
+            )
+            original = replace(make_price(), volume_mwh=Decimal("100"))
+            common = dict(
+                artifact=artifact,
+                source="entsoe",
+                delivery_date=date(2026, 8, 18),
+                source_url="https://example.test/api",
+                content_type="application/xml",
+                fetched_at_utc=datetime(2026, 8, 17, 12, tzinfo=timezone.utc),
+                validation_status="validated",
+            )
+            repository.store_collection(prices=[original], **common)
+
+            with self.assertRaisesRegex(ValueError, "Conflicting market volume"):
+                repository.store_collection(
+                    prices=[replace(original, volume_mwh=Decimal("101"))], **common
+                )
+            with self.assertRaisesRegex(ValueError, "Conflicting source revision"):
+                repository.store_collection(
+                    prices=[replace(original, source_revision="revision-2")], **common
+                )
 
     def test_repository_rejects_naive_fetch_timestamp(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

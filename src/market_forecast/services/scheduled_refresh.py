@@ -85,8 +85,10 @@ def _sanitized_failure_code(exc: Exception) -> str:
     message = str(exc)
     if "Conflicting market price already exists" in message:
         return "ValueError:price_conflict"
-    if "volume conflicts" in message or "conflicting market price" in message.lower():
+    if "Conflicting market volume already exists" in message:
         return "ValueError:volume_conflict"
+    if "Conflicting source revision already exists" in message:
+        return "ValueError:source_revision_conflict"
     if "artifact" in message.lower() or "workbook" in message.lower():
         return "ValueError:invalid_artifact"
     return "ValueError:validation_error"
