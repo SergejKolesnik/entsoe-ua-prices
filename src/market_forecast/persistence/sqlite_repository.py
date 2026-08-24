@@ -253,7 +253,7 @@ class SQLiteMarketRepository:
                         item.source_revision,
                     )
                     price_fields_match = (
-                        existing[0] == expected[0]
+                        _utc_text_equal(existing[0], expected[0])
                         and existing[1] == expected[1]
                         and _decimal_text_equal(existing[2], expected[2])
                         and existing[3] == expected[3]
@@ -922,3 +922,12 @@ def _optional_decimal_text_equal(left: object, right: object) -> bool:
     if left is None or right is None:
         return left is right
     return _decimal_text_equal(left, right)
+
+
+def _utc_text_equal(left: object, right: object) -> bool:
+    """Compare UTC timestamp representations by instant, not ISO spelling."""
+
+    try:
+        return _parse_utc(str(left)) == _parse_utc(str(right))
+    except (TypeError, ValueError):
+        return False
