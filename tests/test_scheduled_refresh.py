@@ -59,3 +59,37 @@ class ScheduledRefreshTests(TestCase):
             self.assertEqual(failure.message, "RuntimeError")
             latest = repository.latest_collection_attempt("operator_market")
             self.assertEqual(latest[2:], ("failed", 0, "RuntimeError"))
+
+    def test_classifies_price_conflict_without_storing_values(self):
+        with TemporaryDirectory() as directory:
+            repository = SQLiteMarketRepository(Path(directory) / "market.sqlite3")
+            attempted = datetime(2026, 8, 24, 13, 0, tzinfo=timezone.utc)
+
+            failure = refresh_operator_day(
+                date(2026, 8, 25),
+                StubService(
+                    error=ValueError(
+                        "Conflicting market price already exists for the same source interval"
+                    )
+                ),
+                object(),
+                repository,
+                attempted,
+            )
+
+            self.assertEqual(failure.message, "ValueError:price_conflict")
+            self.assertNotIn("interval", failure.message)
+
+    def test_unknown_value_error_remains_sanitized(self):
+        with TemporaryDirectory() as directory:
+            repository = SQLiteMarketRepository(Path(directory) / "market.sqlite3")
+
+            failure = refresh_operator_day(
+                date(2026, 8, 25),
+                StubService(error=ValueError("private source detail")),
+                object(),
+                repository,
+            )
+
+            self.assertEqual(failure.message, "ValueError:validation_error")
+            self.assertNotIn("private", failure.message)
