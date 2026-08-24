@@ -252,12 +252,8 @@ class SQLiteMarketRepository:
                         str(item.volume_mwh) if item.volume_mwh is not None else None,
                         item.source_revision,
                     )
-                    price_fields_match = (
-                        _utc_text_equal(existing[0], expected[0])
-                        and existing[1] == expected[1]
-                        and _decimal_text_equal(existing[2], expected[2])
-                        and existing[3] == expected[3]
-                    )
+                    price_conflict_fields = _price_conflict_fields(existing, expected)
+                    price_fields_match = not price_conflict_fields
                     volumes_match = _optional_decimal_text_equal(
                         existing[4], expected[4]
                     )
@@ -279,7 +275,8 @@ class SQLiteMarketRepository:
                         )
                     elif not price_fields_match:
                         raise ValueError(
-                            "Conflicting market price already exists for the same source interval"
+                            "Conflicting market price already exists for the same source interval; "
+                            f"fields={','.join(price_conflict_fields)}"
                         )
                     elif not volumes_match:
                         raise ValueError(
@@ -931,3 +928,20 @@ def _utc_text_equal(left: object, right: object) -> bool:
         return _parse_utc(str(left)) == _parse_utc(str(right))
     except (TypeError, ValueError):
         return False
+
+
+def _price_conflict_fields(
+    existing: tuple[object, ...], expected: tuple[object, ...]
+) -> list[str]:
+    """Return safe field names that differ without exposing market values."""
+
+    conflicts = []
+    if not _utc_text_equal(existing[0], expected[0]):
+        conflicts.append("delivery_end")
+    if existing[1] != expected[1]:
+        conflicts.append("settlement_period")
+    if not _decimal_text_equal(existing[2], expected[2]):
+        conflicts.append("price")
+    if existing[3] != expected[3]:
+        conflicts.append("currency")
+    return conflicts

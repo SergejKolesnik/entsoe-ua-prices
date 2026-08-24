@@ -84,7 +84,20 @@ def _sanitized_failure_code(exc: Exception) -> str:
         return type(exc).__name__
     message = str(exc)
     if "Conflicting market price already exists" in message:
-        return "ValueError:price_conflict"
+        allowed_fields = (
+            "delivery_end",
+            "settlement_period",
+            "price",
+            "currency",
+        )
+        field_text = message.partition("fields=")[2]
+        fields = [
+            field
+            for field in allowed_fields
+            if field in {item.strip() for item in field_text.split(",")}
+        ]
+        suffix = f":{','.join(fields)}" if fields else ""
+        return f"ValueError:price_conflict{suffix}"
     if "Conflicting market volume already exists" in message:
         return "ValueError:volume_conflict"
     if "Conflicting source revision already exists" in message:
