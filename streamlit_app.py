@@ -23,7 +23,9 @@ from market_forecast.config import Settings  # noqa: E402
 from market_forecast.analysis import (  # noqa: E402
     build_daily_explanation,
     build_hourly_price_flow_comparison,
+    build_monthly_seasonality_profile,
     build_price_driver_comparison,
+    build_year_over_year_month,
     daily_net_import_comparison,
     neighbor_daily_change,
 )
@@ -269,7 +271,11 @@ def _draw_overview(frame: pd.DataFrame, selected_date: date) -> None:
     st.plotly_chart(fig, width="stretch")
 
 
-def _draw_history(frame: pd.DataFrame) -> None:
+def _draw_history(
+    frame: pd.DataFrame,
+    full_history: pd.DataFrame,
+    selected_date: date,
+) -> None:
     daily = _daily_summary(frame)
     fig = go.Figure()
     fig.add_trace(
@@ -327,6 +333,83 @@ def _draw_history(frame: pd.DataFrame) -> None:
     heatmap.update_layout(**_chart_layout(390, "День тижня"))
     heatmap.update_xaxes(title="Година", dtick=2)
     st.plotly_chart(heatmap, width="stretch")
+
+    st.divider()
+    st.markdown("### Сезонність і порівняння з минулим роком")
+    st.caption(
+        "Порівнюються лише однакові календарні дні місяця, наявні в обох роках. "
+        "Це описова статистика, а не доказ того, що місяць сам спричинив зміну ціни."
+    )
+    full_daily = _daily_summary(full_history)
+    comparison = build_year_over_year_month(full_daily, selected_date)
+    if comparison.status == "no_prior_period":
+        st.info(
+            f"Для {selected_date.strftime('%m.%Y')} ще немає тих самих календарних "
+            "днів попереднього року. Порівняння зʼявиться автоматично після накопичення історії."
+        )
+    else:
+        columns = st.columns(4)
+        columns[0].metric(
+            f"Середня · {comparison.current_year}",
+            f"{comparison.current_average:,.0f} грн/МВт·год",
+        )
+        columns[1].metric(
+            f"Середня · {comparison.prior_year}",
+            f"{comparison.prior_average:,.0f} грн/МВт·год",
+        )
+        columns[2].metric(
+            "Зміна рік до року",
+            f"{comparison.change_percent:+.1f}%"
+            if comparison.change_percent is not None
+            else "—",
+        )
+        columns[3].metric(
+            "Спільні дні",
+            f"{comparison.matched_days}/{comparison.expected_days}",
+        )
+        if comparison.status in {"limited_overlap", "partial_overlap"}:
+            st.warning(
+                "Порівняння попереднє: у двох періодах збігаються не всі дні. "
+                "Висновок слід читати лише для показаних спільних дат."
+            )
+        figure = go.Figure()
+        figure.add_trace(
+            go.Scatter(
+                x=comparison.points["day"],
+                y=comparison.points["prior"],
+                mode="lines+markers",
+                name=str(comparison.prior_year),
+                line=dict(color=MUTED, width=2, dash="dot"),
+            )
+        )
+        figure.add_trace(
+            go.Scatter(
+                x=comparison.points["day"],
+                y=comparison.points["current"],
+                mode="lines+markers",
+                name=str(comparison.current_year),
+                line=dict(color=AMBER, width=3),
+            )
+        )
+        figure.update_layout(**_chart_layout(360, "грн/МВт·год"))
+        figure.update_xaxes(title="День місяця", dtick=1)
+        st.plotly_chart(figure, width="stretch")
+
+    profile = build_monthly_seasonality_profile(full_daily)
+    history_years = full_daily["delivery_date"].map(lambda item: item.year).nunique()
+    repeated_months = int((profile["years"] >= 2).sum()) if not profile.empty else 0
+    st.markdown("#### Готовність багаторічного сезонного профілю")
+    readiness_columns = st.columns(3)
+    readiness_columns[0].metric("Календарних років у базі", str(history_years))
+    readiness_columns[1].metric("Місяців із повтором", f"{repeated_months}/12")
+    readiness_columns[2].metric(
+        "Статус",
+        "Достатньо для дослідження" if repeated_months >= 8 and history_years >= 3 else "Накопичуємо історію",
+    )
+    st.caption(
+        "Стійку сезонну закономірність варто оцінювати щонайменше на трьох роках "
+        "і окремо перевіряти погоду, попит, генерацію, перетоки та регуляторні зміни."
+    )
 
 
 def _draw_quality(database_path: Path, date_from: date, date_to: date) -> None:
@@ -1431,7 +1514,8 @@ def main() -> None:
         _draw_overview(frame, selected_date)
         _draw_market_volume(settings.database_path, selected_date)
     with history:
-        _draw_history(frame)
+        full_history = _load_prices(str(settings.database_path), earliest, latest)
+        _draw_history(frame, full_history, selected_date)
     with drivers:
         _draw_price_drivers(
             settings.database_path, frame, date_from, date_to, selected_date
@@ -1439,8 +1523,8 @@ def main() -> None:
     with quality:
         _draw_quality(settings.database_path, date_from, date_to)
     with forecast:
-        forecast_history = _load_prices(str(settings.database_path), earliest, latest)
-        _draw_forecast(forecast_history, latest)
+        full_history = _load_prices(str(settings.database_path), earliest, latest)
+        _draw_forecast(full_history, latest)
     with monitoring:
         _draw_forecast_monitoring(settings.database_path)
     with neighbors:

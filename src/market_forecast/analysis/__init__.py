@@ -8,6 +8,11 @@ from .price_drivers import (
     daily_net_import_comparison,
     neighbor_daily_change,
 )
+from .seasonality import (
+    YearOverYearMonth,
+    build_monthly_seasonality_profile,
+    build_year_over_year_month,
+)
 
 __all__ = [
     "PRICE_SEGMENTS",
@@ -16,4 +21,7 @@ __all__ = [
     "build_price_driver_comparison",
     "daily_net_import_comparison",
     "neighbor_daily_change",
+    "YearOverYearMonth",
+    "build_monthly_seasonality_profile",
+    "build_year_over_year_month",
 ]
