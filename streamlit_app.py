@@ -444,7 +444,90 @@ def _draw_quality(database_path: Path, date_from: date, date_to: date) -> None:
     )
 
 
+def _coverage_span_days(
+    coverage: tuple[str | None, str | None, int, int]
+) -> int:
+    """Return the inclusive timestamp span without assuming 24-hour market days."""
+
+    if coverage[0] is None or coverage[1] is None:
+        return 0
+    start = pd.to_datetime(coverage[0], utc=True)
+    end = pd.to_datetime(coverage[1], utc=True)
+    return int((end - start).total_seconds() // 86400) + 1
+
+
+def _draw_forecast_readiness(database_path: Path) -> None:
+    """Explain which validated inputs can support a future multivariate model."""
+
+    repository = _repository(database_path)
+    coverage = repository.forecast_feature_coverage()
+    requirements = [
+        ("Ціни РДН України", "ua_prices", 730, "Основна ціль та лаги"),
+        ("Обсяги РДН України", "ua_volumes", 730, "Ліквідність і попит"),
+        ("Ціни сусідніх ринків", "neighbor_prices", 180, "Регіональний ціновий сигнал"),
+        ("Курс EUR/UAH", "fx", 365, "Порівняння цін у спільній валюті"),
+        ("Імпорт та експорт", "flows", 180, "Фізичний звʼязок ринків"),
+        ("Прогноз погоди", "weather", 90, "Сонце, вітер і температурний попит"),
+    ]
+    rows = []
+    ready = 0
+    for label, key, minimum_days, purpose in requirements:
+        item = coverage[key]
+        days = _coverage_span_days(item)
+        if days >= minimum_days:
+            status = "🟢 Достатньо для кандидата"
+            ready += 1
+        elif days > 0:
+            status = "🟡 Накопичуємо"
+        else:
+            status = "⚪ Даних немає"
+        rows.append(
+            {
+                "Фактор": label,
+                "Покриття": f"{days} дн.",
+                "Орієнтир": f"≥ {minimum_days} дн.",
+                "Статус": status,
+                "Навіщо моделі": purpose,
+            }
+        )
+    rows.extend(
+        [
+            {
+                "Фактор": "Прогноз навантаження",
+                "Покриття": "0 дн.",
+                "Орієнтир": "≥ 180 дн.",
+                "Статус": "⚪ Ще не збирається",
+                "Навіщо моделі": "Очікуваний попит на електроенергію",
+            },
+            {
+                "Фактор": "Прогноз генерації та ремонтів",
+                "Покриття": "0 дн.",
+                "Орієнтир": "≥ 180 дн.",
+                "Статус": "⚪ Ще не збирається",
+                "Навіщо моделі": "Очікувана пропозиція та дефіцит потужності",
+            },
+        ]
+    )
+
+    st.markdown("### Готовність даних для прогнозування")
+    columns = st.columns(3)
+    columns[0].metric("Готові групи факторів", f"{ready}/{len(rows)}")
+    columns[1].metric("Тип поточної моделі", "Базова")
+    columns[2].metric("Багатофакторна модель", "Ще рано")
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    st.caption(
+        "Орієнтири — мінімальні робочі пороги для запуску моделі-кандидата у тіньовому "
+        "режимі, а не гарантія якості. Для навчання використовуватимуться лише значення, "
+        "які були доступні до моменту формування конкретного прогнозу."
+    )
+
+
 def _draw_forecast(frame: pd.DataFrame, latest_date: date) -> None:
+    st.markdown("### Базовий прогноз")
+    st.info(
+        "Це контрольна модель на основі історичних цін. Вона ще не враховує повний "
+        "набір погоди, попиту, генерації, ремонтів і міждержавних перетоків."
+    )
     rows = [
         (
             item.delivery_start_utc.to_pydatetime()
@@ -477,7 +560,7 @@ def _draw_forecast(frame: pd.DataFrame, latest_date: date) -> None:
     }
     columns = st.columns(4)
     columns[0].metric("Прогноз на", target_date.strftime("%d.%m.%Y"))
-    columns[1].metric("Обрана модель", method_label[champion])
+    columns[1].metric("Базова модель", method_label[champion])
     columns[2].metric("Backtest MAE", f"{float(metrics.mae):,.0f} грн/МВт·год")
     columns[3].metric("Контрольна вибірка", f"{metrics.evaluated_days} днів")
 
@@ -1528,6 +1611,8 @@ def main() -> None:
         )
     with forecast:
         full_history = _load_prices(str(settings.database_path), earliest, latest)
+        _draw_forecast_readiness(settings.database_path)
+        st.divider()
         _draw_forecast(full_history, latest)
     with neighbors:
         _draw_neighbor_markets(settings.database_path, date_from, date_to, selected_date)

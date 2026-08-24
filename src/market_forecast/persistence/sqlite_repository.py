@@ -562,6 +562,49 @@ class SQLiteMarketRepository:
             row = connection.execute("SELECT COUNT(*) FROM market_prices").fetchone()
         return int(row[0]) if row else 0
 
+    def forecast_feature_coverage(
+        self,
+    ) -> dict[str, tuple[str | None, str | None, int, int]]:
+        """Return compact aggregate coverage for forecast-relevant data families.
+
+        The result contains earliest value, latest value, record count, and
+        distinct calendar-day count. It deliberately avoids returning raw rows,
+        keeping the dashboard read-only and inexpensive on PostgreSQL.
+        """
+
+        queries = {
+            "ua_prices": """SELECT MIN(delivery_start_utc), MAX(delivery_start_utc),
+                                    COUNT(*), COUNT(DISTINCT DATE(delivery_start_utc))
+                             FROM market_prices WHERE source = 'operator_market'""",
+            "ua_volumes": """SELECT MIN(delivery_start_utc), MAX(delivery_start_utc),
+                                     COUNT(*), COUNT(DISTINCT DATE(delivery_start_utc))
+                              FROM market_prices
+                              WHERE source = 'operator_market' AND volume_mwh IS NOT NULL""",
+            "neighbor_prices": """SELECT MIN(delivery_start_utc), MAX(delivery_start_utc),
+                                          COUNT(*), COUNT(DISTINCT DATE(delivery_start_utc))
+                                   FROM market_prices WHERE source = 'entsoe'""",
+            "fx": """SELECT MIN(effective_date), MAX(effective_date),
+                             COUNT(*), COUNT(DISTINCT effective_date)
+                      FROM exchange_rates""",
+            "flows": """SELECT MIN(delivery_start_utc), MAX(delivery_start_utc),
+                                 COUNT(*), COUNT(DISTINCT DATE(delivery_start_utc))
+                          FROM cross_border_flows""",
+            "weather": """SELECT MIN(valid_start_utc), MAX(valid_start_utc),
+                                   COUNT(*), COUNT(DISTINCT DATE(valid_start_utc))
+                            FROM weather_forecasts""",
+        }
+        coverage: dict[str, tuple[str | None, str | None, int, int]] = {}
+        with closing(self._connect()) as connection:
+            for key, query in queries.items():
+                row = connection.execute(query).fetchone()
+                coverage[key] = (
+                    str(row[0]) if row and row[0] is not None else None,
+                    str(row[1]) if row and row[1] is not None else None,
+                    int(row[2]) if row else 0,
+                    int(row[3]) if row else 0,
+                )
+        return coverage
+
     def list_prices(
         self,
         source: str,

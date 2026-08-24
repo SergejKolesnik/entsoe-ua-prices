@@ -17,6 +17,7 @@ The project is intentionally separate from SkyGrid Solar. It provides source ada
 - Store immutable raw responses by SHA-256 and normalized prices idempotently in SQLite.
 - Parse official Market Operator legacy XLS workbooks using their verified hourly layout.
 - Explore stored prices in a dark Streamlit dashboard with five decision-oriented tabs: overview, trends, price drivers, forecast, and neighboring markets. Calendar-aligned year-over-year seasonality and the weekly heatmap live under Trends; quality and forecast monitoring remain available through an optional Technical status tab.
+- Inspect aggregate forecast-feature coverage without downloading raw Neon rows. The Forecast tab labels the current result as a baseline and shows explicit minimum-history readiness for prices, volumes, neighboring markets, FX, flows, weather, load, and generation.
 
 ## Setup
 
