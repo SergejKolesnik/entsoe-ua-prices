@@ -16,7 +16,7 @@ The project is intentionally separate from SkyGrid Solar. It provides source ada
 - Test 23-, 24-, and 25-period trading days without inventing missing values.
 - Store immutable raw responses by SHA-256 and normalized prices idempotently in SQLite.
 - Parse official Market Operator legacy XLS workbooks using their verified hourly layout.
-- Explore stored prices in a dark Streamlit dashboard with daily metrics, hourly profiles, history, a calendar heatmap, and data-quality reporting.
+- Explore stored prices in a dark Streamlit dashboard with daily metrics, hourly profiles, history, calendar-aligned year-over-year seasonality, a weekly heatmap, and data-quality reporting.
 
 ## Setup
 
