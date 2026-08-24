@@ -1,5 +1,7 @@
 # Ukraine Energy Market Forecast
 
+[Open RDN Market Intelligence](https://rdn-market-intelligence-ua-v2.streamlit.app/)
+
 Independent Python foundation for collecting and validating Ukrainian day-ahead electricity-market data.
 
 The project is intentionally separate from SkyGrid Solar. It provides source adapters, normalized domain models, raw artifact landing, SQLite persistence, settlement-period validation, and an independent Streamlit dashboard. Forecasting is not activated yet.
@@ -76,6 +78,11 @@ python -m streamlit run streamlit_app.py
 ```
 
 Streamlit prints the local browser address, normally `http://localhost:8501`. The dashboard reads `data/market_forecast.sqlite3` by default and does not contact or modify SkyGrid Solar. When `DATABASE_URL` is configured, the dashboard and collectors use the dedicated Neon PostgreSQL database instead. Its **Прогноз** tab shows a transparent one-step baseline for the first delivery day after the latest published DAM prices.
+
+The public Streamlit Community Cloud deployment is visited every six hours by
+`.github/workflows/keep-streamlit-awake.yml`. The workflow also verifies the
+Streamlit health endpoint and fails visibly if the app cannot be reached. It can
+be started manually from GitHub Actions when an immediate wake-up check is needed.
 
 `DATABASE_URL` is a secret. Configure it only in the Windows user environment, GitHub Actions secrets, or Streamlit secrets; never commit it to Git. SQLite remains the automatic local fallback when the variable is absent.
 
