@@ -50,6 +50,7 @@ Phase 5: publication foundation. Durable ingestion, automated refresh, analytics
 - Neighbor prices remain in EUR/MWh; no Ukrainian spread is displayed until historical official NBU rates are implemented. Moldova remains pending source verification.
 - The Trends tab compares only matching calendar days of the selected month with the prior year. Partial overlap is explicit, and the dashboard does not label a pattern as stable seasonality until at least three calendar years and repeated coverage across most months exist.
 - The Forecast tab explicitly labels the current historical method as a baseline. A read-only aggregate readiness table reports coverage for each planned feature family without transferring raw rows from Neon; absent load, generation, or weather history remains visible rather than inferred.
+- Production neighbor-price history can be extended through the manual GitHub `backfill_neighbors` task. Each run is bounded to 31 inclusive days, uses repository secrets, and preserves idempotent conflict detection.
 
 ## Security note
 

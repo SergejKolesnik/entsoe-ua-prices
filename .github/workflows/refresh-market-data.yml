@@ -20,10 +20,30 @@ on:
           - operator
           - context
           - diagnose_operator
+          - backfill_neighbors
       delivery_date:
         description: Explicit delivery date for read-only diagnostics (YYYY-MM-DD)
         required: false
         type: string
+      date_from:
+        description: Backfill start date (YYYY-MM-DD, maximum 31 days per run)
+        required: false
+        type: string
+      date_to:
+        description: Backfill end date (YYYY-MM-DD, maximum 31 days per run)
+        required: false
+        type: string
+      market:
+        description: Neighboring market to backfill
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - PL
+          - SK
+          - HU
+          - RO
 
 permissions:
   contents: read
@@ -114,3 +134,46 @@ jobs:
         run: >-
           python -m market_forecast.cli diagnose-operator-conflict
           --date "${{ inputs.delivery_date }}"
+
+  backfill_neighbors:
+    if: github.event_name == 'workflow_dispatch' && inputs.task == 'backfill_neighbors'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      ENTSOE_TOKEN: ${{ secrets.ENTSOE_TOKEN }}
+      PYTHONPATH: src
+      DATE_FROM: ${{ inputs.date_from }}
+      DATE_TO: ${{ inputs.date_to }}
+      MARKET: ${{ inputs.market }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Validate bounded backfill inputs
+        shell: bash
+        run: |
+          test -n "$DATABASE_URL" && test -n "$ENTSOE_TOKEN"
+          test -n "$DATE_FROM" && test -n "$DATE_TO"
+          python - <<'PY'
+          import os
+          from datetime import date
+
+          date_from = date.fromisoformat(os.environ["DATE_FROM"])
+          date_to = date.fromisoformat(os.environ["DATE_TO"])
+          days = (date_to - date_from).days + 1
+          if days < 1 or days > 31:
+              raise SystemExit("Backfill must contain between 1 and 31 inclusive days")
+          PY
+      - name: Backfill neighboring DAM prices
+        run: >-
+          python -m market_forecast.cli backfill-neighbors
+          --market "$MARKET"
+          --from "$DATE_FROM"
+          --to "$DATE_TO"
+          --delay-seconds 0.75
+          --max-days 31
