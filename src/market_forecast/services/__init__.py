@@ -7,6 +7,7 @@ from .scheduled_refresh import RefreshResult, next_delivery_date, refresh_operat
 from .forecast_snapshots import SnapshotGenerationResult, generate_baseline_snapshot
 from .neighbor_prices import aggregate_price_rows_hourly
 from .report_export import build_daily_report, latest_operator_delivery_date, write_daily_report
+from .operator_diagnostics import diagnose_operator_conflict
 from .context_refresh import (
     ContextDates,
     ContextRefreshResult,
@@ -30,6 +31,7 @@ __all__ = [
     "build_daily_report",
     "latest_operator_delivery_date",
     "write_daily_report",
+    "diagnose_operator_conflict",
     "ContextDates",
     "ContextRefreshResult",
     "context_dates",

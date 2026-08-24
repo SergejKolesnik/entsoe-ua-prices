@@ -114,6 +114,14 @@ The **Моніторинг** tab first shows freshness for the Ukrainian DAM, NB
 
 Scheduled Operator failures are stored as sanitized categories. Immutable price, volume, and source-revision conflicts are reported separately as `ValueError:price_conflict`, `ValueError:volume_conflict`, and `ValueError:source_revision_conflict`; invalid artifacts and other validation failures use separate categories. Raw exception messages, source payloads, prices, and connection details are never written to the monitoring journal.
 
+An explicit read-only comparison can identify the affected Kyiv hours and field names without printing either the stored or newly published values:
+
+```bash
+python -m market_forecast.cli diagnose-operator-conflict --date 2026-08-25
+```
+
+GitHub Actions exposes the same operation as `Refresh market data` → `diagnose_operator` with an explicit `delivery_date`. This diagnostic performs no database writes and does not persist the downloaded workbook.
+
 The **Фактори ціни** tab is a transparent diagnostic, not a causal model. It compares the selected day with the latest earlier observed day and with the mean of up to seven earlier available days, then separates night, morning, solar hours, evening peak, and late evening. A short Ukrainian summary ranks the largest time-of-day deviation and lists only observed co-movements: DAM volume, neighboring-market prices, and fully covered cross-border flows. The hourly chart overlays both price days with selected-day net imports only when every configured border and direction is complete. Weather, generation availability, and load remain explicitly marked as hypotheses until their decision-time vintages can be selected without future-data leakage.
 
 The context refresh also collects an immutable three-day Open-Meteo forecast vintage for Kyiv, Lviv, Vinnytsia, Odesa, Dnipro, and Kharkiv. Each hourly row preserves its collection vintage, valid time, temperature, cloud cover, shortwave radiation, and 100-metre wind speed. These points are not yet assigned market weights; doing so without measured generation and demand coverage would create false precision. PostgreSQL deployments must apply `migrations/002_weather_forecasts.sql` before enabling this collector.

@@ -36,6 +36,11 @@ def build_parser() -> argparse.ArgumentParser:
         dest="delivery_date",
         help="Optional explicit delivery date; defaults to tomorrow in Kyiv.",
     )
+    diagnose = subparsers.add_parser(
+        "diagnose-operator-conflict",
+        help="Compare stored and current Operator rows without writing data.",
+    )
+    diagnose.add_argument("--date", required=True, type=date.fromisoformat, dest="delivery_date")
 
     subparsers.add_parser(
         "snapshot-baseline",
@@ -240,6 +245,20 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         return 2 if result.status == "unpublished" else 1
+    if args.command == "diagnose-operator-conflict":
+        from market_forecast.config import Settings
+        from market_forecast.persistence import create_market_repository
+        from market_forecast.services import diagnose_operator_conflict
+        from market_forecast.sources import OperatorMarketSource
+
+        settings = Settings.from_environment()
+        result = diagnose_operator_conflict(
+            args.delivery_date,
+            create_market_repository(settings.database_path, settings.database_url),
+            OperatorMarketSource(timeout_seconds=settings.request_timeout_seconds),
+        )
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+        return 0 if result["status"] in {"identical", "conflict"} else 2
     if args.command == "snapshot-baseline":
         from market_forecast.config import Settings
         from market_forecast.persistence import create_market_repository
