@@ -62,6 +62,39 @@ class PersistenceTests(unittest.TestCase):
             self.assertEqual(second_inserted, 0)
             self.assertEqual(repository.count_prices(), 1)
 
+    def test_repository_treats_decimal_scale_as_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = SQLiteMarketRepository(root / "market.sqlite3")
+            repository.initialize()
+            artifact = RawArtifactStore(root / "raw").save(
+                b"document", "entsoe", date(2026, 8, 18), "xml"
+            )
+            price = replace(
+                make_price("5000.10"), volume_mwh=Decimal("100.50")
+            )
+            arguments = dict(
+                artifact=artifact,
+                source="entsoe",
+                delivery_date=date(2026, 8, 18),
+                source_url="https://example.test/api",
+                content_type="application/xml",
+                fetched_at_utc=datetime(2026, 8, 17, 12, tzinfo=timezone.utc),
+                prices=[price],
+                validation_status="validated",
+            )
+            repository.store_collection(**arguments)
+            with closing(sqlite3.connect(root / "market.sqlite3")) as connection:
+                connection.execute(
+                    "UPDATE market_prices SET price = ?, volume_mwh = ?",
+                    ("5000.1000", "100.5000"),
+                )
+
+            _, inserted = repository.store_collection(**arguments)
+
+            self.assertEqual(inserted, 0)
+            self.assertEqual(repository.count_prices(), 1)
+
     def test_repository_rejects_conflicting_retry(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
