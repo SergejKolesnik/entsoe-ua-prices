@@ -93,3 +93,25 @@ class ScheduledRefreshTests(TestCase):
 
             self.assertEqual(failure.message, "ValueError:validation_error")
             self.assertNotIn("private", failure.message)
+
+    def test_classifies_volume_and_source_revision_conflicts(self):
+        cases = (
+            (
+                "Conflicting market volume already exists for the same source interval",
+                "ValueError:volume_conflict",
+            ),
+            (
+                "Conflicting source revision already exists for the same source interval",
+                "ValueError:source_revision_conflict",
+            ),
+        )
+        for message, expected in cases:
+            with self.subTest(expected=expected), TemporaryDirectory() as directory:
+                repository = SQLiteMarketRepository(Path(directory) / "market.sqlite3")
+                failure = refresh_operator_day(
+                    date(2026, 8, 25),
+                    StubService(error=ValueError(message)),
+                    object(),
+                    repository,
+                )
+                self.assertEqual(failure.message, expected)
