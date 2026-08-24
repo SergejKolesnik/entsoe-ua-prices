@@ -64,7 +64,7 @@ def refresh_operator_day(
             delivery_date,
             attempted_at,
             "failed",
-            message=type(exc).__name__,
+            message=_sanitized_failure_code(exc),
         )
     repository.record_collection_attempt(
         OPERATOR_SOURCE,
@@ -75,3 +75,18 @@ def refresh_operator_day(
         result.message,
     )
     return result
+
+
+def _sanitized_failure_code(exc: Exception) -> str:
+    """Return a useful failure category without persisting source data or secrets."""
+
+    if not isinstance(exc, ValueError):
+        return type(exc).__name__
+    message = str(exc)
+    if "Conflicting market price already exists" in message:
+        return "ValueError:price_conflict"
+    if "volume conflicts" in message or "conflicting market price" in message.lower():
+        return "ValueError:volume_conflict"
+    if "artifact" in message.lower() or "workbook" in message.lower():
+        return "ValueError:invalid_artifact"
+    return "ValueError:validation_error"
