@@ -94,6 +94,27 @@ class ScheduledRefreshTests(TestCase):
             self.assertEqual(failure.message, "ValueError:validation_error")
             self.assertNotIn("private", failure.message)
 
+    def test_price_conflict_exposes_only_allowlisted_field_names(self):
+        with TemporaryDirectory() as directory:
+            repository = SQLiteMarketRepository(Path(directory) / "market.sqlite3")
+            failure = refresh_operator_day(
+                date(2026, 8, 25),
+                StubService(
+                    error=ValueError(
+                        "Conflicting market price already exists for the same source "
+                        "interval; fields=settlement_period,price,secret=12345"
+                    )
+                ),
+                object(),
+                repository,
+            )
+
+            self.assertEqual(
+                failure.message,
+                "ValueError:price_conflict:settlement_period,price",
+            )
+            self.assertNotIn("12345", failure.message)
+
     def test_classifies_volume_and_source_revision_conflicts(self):
         cases = (
             (
