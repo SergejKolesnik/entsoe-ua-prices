@@ -17,19 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Visit public app
+      - name: Keep app awake and verify Streamlit health
         run: |
-          effective_url="$(curl --fail --silent --show-error --location \
-            --retry 3 --retry-delay 10 --connect-timeout 15 --max-time 90 \
-            --user-agent "RDN-Market-Intelligence-Keepalive/1.0" \
-            --output /dev/null --write-out "%{url_effective}" \
-            https://rdn-market-intelligence-ua-v2.streamlit.app/)"
-          test "$effective_url" = "https://rdn-market-intelligence-ua-v2.streamlit.app/"
-
-      - name: Verify Streamlit health
-        run: |
-          sleep 15
           response="$(curl --fail --silent --show-error --location \
             --retry 3 --retry-delay 10 --connect-timeout 15 --max-time 90 \
+            --user-agent "RDN-Market-Intelligence-Keepalive/1.0" \
             https://rdn-market-intelligence-ua-v2.streamlit.app/healthz)"
           test "$response" = '{"status":"ok"}'
