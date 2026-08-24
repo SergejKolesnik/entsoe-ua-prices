@@ -29,6 +29,31 @@ def make_price(
 
 
 class PersistenceTests(unittest.TestCase):
+    def test_forecast_feature_coverage_is_aggregate_and_explicit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = SQLiteMarketRepository(root / "market.sqlite3")
+            repository.initialize()
+            artifact = RawArtifactStore(root / "raw").save(
+                b"document", "entsoe", date(2026, 8, 18), "xml"
+            )
+            repository.store_collection(
+                artifact=artifact,
+                source="entsoe",
+                delivery_date=date(2026, 8, 18),
+                source_url="https://example.test/api",
+                content_type="application/xml",
+                fetched_at_utc=datetime(2026, 8, 17, 12, tzinfo=timezone.utc),
+                prices=[make_price()],
+                validation_status="validated",
+            )
+
+            coverage = repository.forecast_feature_coverage()
+
+            self.assertEqual(coverage["neighbor_prices"][2:], (1, 1))
+            self.assertEqual(coverage["ua_prices"], (None, None, 0, 0))
+            self.assertEqual(coverage["weather"], (None, None, 0, 0))
+
     def test_raw_artifact_store_is_content_addressed_and_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = RawArtifactStore(Path(directory))

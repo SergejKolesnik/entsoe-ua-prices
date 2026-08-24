@@ -49,6 +49,7 @@ Phase 5: publication foundation. Durable ingestion, automated refresh, analytics
 - ENTSO-E day-ahead prices accept validated 15/30/60-minute intervals. The comparison UI aggregates only complete sub-hourly groups to UTC-aligned hourly averages because SDAC moved to 15-minute MTU from delivery day 2025-10-01.
 - Neighbor prices remain in EUR/MWh; no Ukrainian spread is displayed until historical official NBU rates are implemented. Moldova remains pending source verification.
 - The Trends tab compares only matching calendar days of the selected month with the prior year. Partial overlap is explicit, and the dashboard does not label a pattern as stable seasonality until at least three calendar years and repeated coverage across most months exist.
+- The Forecast tab explicitly labels the current historical method as a baseline. A read-only aggregate readiness table reports coverage for each planned feature family without transferring raw rows from Neon; absent load, generation, or weather history remains visible rather than inferred.
 
 ## Security note
 
