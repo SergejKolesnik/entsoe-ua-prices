@@ -41,14 +41,14 @@ Phase 5: publication foundation. Durable ingestion, automated refresh, analytics
 - Published refreshes are designed to run in GitHub Actions on Kyiv-local schedules and write directly to Neon. Windows Task Scheduler remains a local fallback, not a requirement for the public dashboard.
 - Every successful scheduled refresh freezes an immutable `baseline-v1` forecast for the first unknown delivery day. A target/model/version uniqueness contract prevents hindsight rewrites.
 - Forecast runs retain their issue time, training cutoff, model version, backtest metrics, hourly prediction, P80 bounds, method, and sample count.
-- The Monitoring tab scores frozen points against actual prices only after those facts exist and reports operational MAE/RMSE separately from historical backtest metrics.
+- The optional Technical status tab scores frozen points against actual prices only after those facts exist and reports operational MAE/RMSE separately from historical backtest metrics. It also contains data-quality diagnostics and is hidden from the default decision-oriented navigation.
 - The Price Drivers tab is observation-only: it compares the selected day with the previous available day and up to seven earlier days, decomposes movement by time-of-day regime, and produces a cautious narrative from volume, neighbor-price, and complete cross-border-flow observations. Its hourly view aligns the two price profiles and overlays net imports only for complete flow days. Weather, load, and generation stay hypotheses until decision-time vintages can be queried without future-data leakage.
 - Open-Meteo forecast vintages are collected for six explicit Ukrainian regional points. Raw JSON and every hourly collection vintage are retained; no national weighting or causal interpretation is applied yet.
 - Hermes integration is a read-only, versioned static JSON export built from the repository contract. It never exposes database credentials or arbitrary SQL, and incomplete or stale datasets remain explicit in the payload.
 - Neighbor-market support is additive and uses explicit ENTSO-E bidding zones for PL, SK, HU, and RO. Database reads and uniqueness remain isolated by bidding zone.
 - ENTSO-E day-ahead prices accept validated 15/30/60-minute intervals. The comparison UI aggregates only complete sub-hourly groups to UTC-aligned hourly averages because SDAC moved to 15-minute MTU from delivery day 2025-10-01.
 - Neighbor prices remain in EUR/MWh; no Ukrainian spread is displayed until historical official NBU rates are implemented. Moldova remains pending source verification.
-- The History tab compares only matching calendar days of the selected month with the prior year. Partial overlap is explicit, and the dashboard does not label a pattern as stable seasonality until at least three calendar years and repeated coverage across most months exist.
+- The Trends tab compares only matching calendar days of the selected month with the prior year. Partial overlap is explicit, and the dashboard does not label a pattern as stable seasonality until at least three calendar years and repeated coverage across most months exist.
 
 ## Security note
 

@@ -271,7 +271,7 @@ def _draw_overview(frame: pd.DataFrame, selected_date: date) -> None:
     st.plotly_chart(fig, width="stretch")
 
 
-def _draw_history(
+def _draw_trends(
     frame: pd.DataFrame,
     full_history: pd.DataFrame,
     selected_date: date,
@@ -1493,42 +1493,51 @@ def main() -> None:
         if st.button("Оновити екран", width="stretch"):
             st.cache_data.clear()
             st.rerun()
+        st.divider()
+        show_technical = st.toggle(
+            "Показати технічний стан",
+            value=False,
+            help="Якість даних, історія оновлень і контроль зафіксованих прогнозів.",
+        )
 
     frame = _load_prices(str(settings.database_path), date_from, date_to)
     if frame.empty:
         st.warning("У вибраному періоді немає даних.")
         return
 
-    overview, history, drivers, quality, forecast, monitoring, neighbors = st.tabs(
-        [
-            "Огляд дня",
-            "Історія",
-            "Фактори ціни",
-            "Якість даних",
-            "Прогноз",
-            "Моніторинг",
-            "Сусідні ринки",
-        ]
-    )
+    tab_labels = [
+        "Огляд",
+        "Тенденції",
+        "Фактори ціни",
+        "Прогноз",
+        "Сусідні ринки",
+    ]
+    if show_technical:
+        tab_labels.append("Технічний стан")
+    tabs = st.tabs(tab_labels)
+    overview, trends, drivers, forecast, neighbors = tabs[:5]
     with overview:
         _draw_overview(frame, selected_date)
         _draw_market_volume(settings.database_path, selected_date)
-    with history:
+    with trends:
         full_history = _load_prices(str(settings.database_path), earliest, latest)
-        _draw_history(frame, full_history, selected_date)
+        _draw_trends(frame, full_history, selected_date)
     with drivers:
         _draw_price_drivers(
             settings.database_path, frame, date_from, date_to, selected_date
         )
-    with quality:
-        _draw_quality(settings.database_path, date_from, date_to)
     with forecast:
         full_history = _load_prices(str(settings.database_path), earliest, latest)
         _draw_forecast(full_history, latest)
-    with monitoring:
-        _draw_forecast_monitoring(settings.database_path)
     with neighbors:
         _draw_neighbor_markets(settings.database_path, date_from, date_to, selected_date)
+    if show_technical:
+        with tabs[5]:
+            st.markdown("### Якість і повнота даних")
+            _draw_quality(settings.database_path, date_from, date_to)
+            st.divider()
+            st.markdown("### Контроль зафіксованих прогнозів")
+            _draw_forecast_monitoring(settings.database_path)
 
 
 if __name__ == "__main__":
