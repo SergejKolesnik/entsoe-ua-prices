@@ -16,8 +16,9 @@ import streamlit as st
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 SOURCE_ROOT = PROJECT_ROOT / "src"
-if str(SOURCE_ROOT) not in sys.path:
-    sys.path.insert(0, str(SOURCE_ROOT))
+if str(SOURCE_ROOT) in sys.path:
+    sys.path.remove(str(SOURCE_ROOT))
+sys.path.insert(0, str(SOURCE_ROOT))
 
 from market_forecast.config import Settings  # noqa: E402
 from market_forecast.analysis import (  # noqa: E402
@@ -26,9 +27,11 @@ from market_forecast.analysis import (  # noqa: E402
     build_monthly_seasonality_profile,
     build_price_driver_comparison,
     build_year_over_year_month,
-    calculate_daily_price_indices,
     daily_net_import_comparison,
     neighbor_daily_change,
+)
+from market_forecast.analysis.market_indices import (  # noqa: E402
+    calculate_daily_price_indices,
     price_cap_diagnostics,
     price_cap_for_date,
 )
