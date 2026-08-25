@@ -26,8 +26,11 @@ from market_forecast.analysis import (  # noqa: E402
     build_monthly_seasonality_profile,
     build_price_driver_comparison,
     build_year_over_year_month,
+    calculate_daily_price_indices,
     daily_net_import_comparison,
     neighbor_daily_change,
+    price_cap_diagnostics,
+    price_cap_for_date,
 )
 from market_forecast.forecasting import build_day_forecast, walk_forward_backtest  # noqa: E402
 from market_forecast.neighbor_markets import NEIGHBOR_MARKETS  # noqa: E402
@@ -235,21 +238,42 @@ def _draw_overview(frame: pd.DataFrame, selected_date: date) -> None:
         return
     previous_date = selected_date - timedelta(days=1)
     previous = frame[frame["delivery_date"] == previous_date].sort_values("hour")
-    average = selected["price"].mean()
-    minimum_row = selected.loc[selected["price"].idxmin()]
-    maximum_row = selected.loc[selected["price"].idxmax()]
-    previous_average = previous["price"].mean() if not previous.empty else None
+    indices = calculate_daily_price_indices(selected)
+    previous_indices = calculate_daily_price_indices(previous)
+    if indices is None:
+        st.warning("Недостатньо даних для розрахунку добових індексів.")
+        return
+    cap_regime = price_cap_for_date(selected_date)
+    cap = price_cap_diagnostics(selected, cap_regime)
+    expected_periods = int(
+        (
+            datetime.combine(selected_date + timedelta(days=1), time.min, KYIV).astimezone(timezone.utc)
+            - datetime.combine(selected_date, time.min, KYIV).astimezone(timezone.utc)
+        ).total_seconds()
+        // 3600
+    )
 
-    columns = st.columns(4)
-    delta = average - previous_average if previous_average is not None else None
+    columns = st.columns(5)
+    delta = indices.base - previous_indices.base if previous_indices is not None else None
     columns[0].metric(
-        "Середня ціна",
-        f"{average:,.0f} грн/МВт·год",
+        "Base",
+        f"{indices.base:,.0f} грн/МВт·год",
         f"{delta:+,.0f} до попереднього дня" if delta is not None else None,
     )
-    columns[1].metric("Мінімум", f"{minimum_row['price']:,.0f}", f"{int(minimum_row['hour']):02d}:00")
-    columns[2].metric("Максимум", f"{maximum_row['price']:,.0f}", f"{int(maximum_row['hour']):02d}:00")
-    columns[3].metric("Періоди", f"{len(selected)}/24", "повний день" if len(selected) == 24 else "перевірити")
+    columns[1].metric("Peak · 09–20", f"{indices.peak:,.0f} грн/МВт·год")
+    columns[2].metric("Offpeak", f"{indices.offpeak:,.0f} грн/МВт·год")
+    columns[3].metric(
+        "Біля прайс-кепу",
+        f"{cap['near_cap_periods']}/{cap['period_count']} год" if cap is not None else "—",
+        f"максимум {cap['maximum_utilization_percent']:.1f}% кепу"
+        if cap is not None
+        else "режим ще не підтверджено",
+    )
+    columns[4].metric(
+        "Періоди",
+        f"{len(selected)}/{expected_periods}",
+        "повний день" if len(selected) == expected_periods else "перевірити",
+    )
 
     fig = go.Figure()
     if not previous.empty:
@@ -266,9 +290,29 @@ def _draw_overview(frame: pd.DataFrame, selected_date: date) -> None:
             marker=dict(size=6), fill="tozeroy", fillcolor="rgba(255,184,0,.08)",
         )
     )
+    if cap_regime is not None:
+        fig.add_hline(
+            y=cap_regime.maximum_uah_mwh,
+            line_color=RED,
+            line_dash="dash",
+            line_width=1.5,
+            annotation_text="Верхній прайс-кеп",
+            annotation_position="top left",
+        )
     fig.update_layout(**_chart_layout(410, "грн/МВт·год"))
     fig.update_xaxes(title="Година", dtick=2, range=[0, 23])
     st.plotly_chart(fig, width="stretch")
+    st.caption(
+        "Base — усі розрахункові періоди; Peak — періоди 09–20; "
+        "Offpeak — періоди 01–08 та 21–24. Ціни без ПДВ."
+    )
+    if cap_regime is not None:
+        st.caption(
+            f"Прайс-кеп: {cap_regime.maximum_uah_mwh:,.0f} грн/МВт·год; "
+            f"мінімум: {cap_regime.minimum_uah_mwh:,.0f}. "
+            f"[{cap_regime.resolution}]({cap_regime.source_url}). "
+            "«Біля кепу» означає ціну не нижче 95% від верхньої межі."
+        )
 
 
 def _draw_trends(

@@ -51,6 +51,7 @@ Phase 5: publication foundation. Durable ingestion, automated refresh, analytics
 - The Trends tab compares only matching calendar days of the selected month with the prior year. Partial overlap is explicit, and the dashboard does not label a pattern as stable seasonality until at least three calendar years and repeated coverage across most months exist.
 - The Forecast tab explicitly labels the current historical method as a baseline. A read-only aggregate readiness table reports coverage for each planned feature family without transferring raw rows from Neon; absent load, generation, or weather history remains visible rather than inferred.
 - Production neighbor-price history can be extended through the manual GitHub `backfill_neighbors` task. Each run is bounded to 31 inclusive days, uses repository secrets, and preserves idempotent conflict detection.
+- The day overview calculates official-style Base, Peak (settlement periods 09–20), and Offpeak indices from validated hourly observations. Effective-dated DAM price-cap regimes are an audited, source-linked code registry because they change infrequently; unverified historical periods remain unavailable and are never backfilled from a newer rule.
 
 ## Security note
 
@@ -64,7 +65,7 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
    One incomplete ENTSO-E Poland export day is intentionally excluded from aggregates.
 3. Apply and validate the weather schema migration, begin accumulating daily forecast vintages, then expose radiation, wind, cloud, and temperature as evidence in the Price Drivers tab.
 4. Extend physical-flow history in controlled batches.
-5. Add effective-dated price caps and calendar features as a separate shadow candidate.
+5. Verify and add earlier effective-dated price-cap regimes; then add calendar features as a separate shadow candidate.
 6. Add regression fixtures for documented 23/25-period operator days when available.
 7. Validate the Neon adapter against migrated data, then deploy a read-only Streamlit staging application.
 8. After review, enable the `Publish Hermes report JSON` workflow and verify the first `hermes-report` branch publication before configuring Hermes.
