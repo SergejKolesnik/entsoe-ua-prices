@@ -35,6 +35,11 @@ from market_forecast.analysis.market_indices import (  # noqa: E402
     price_cap_diagnostics,
     price_cap_for_date,
 )
+from market_forecast.analysis.heatmap_comparison import (  # noqa: E402
+    build_weekly_heatmap_comparison,
+    rolling_periods,
+    year_over_year_month_periods,
+)
 from market_forecast.forecasting import build_day_forecast, walk_forward_backtest  # noqa: E402
 from market_forecast.neighbor_markets import NEIGHBOR_MARKETS  # noqa: E402
 from market_forecast.persistence import (  # noqa: E402
@@ -357,29 +362,115 @@ def _draw_trends(
         5: "Субота",
         6: "Неділя",
     }
-    weekly = frame.copy()
-    weekly["weekday"] = weekly["delivery_start"].dt.weekday
-    matrix = weekly.pivot_table(
-        index="weekday", columns="hour", values="price", aggfunc="mean"
-    ).reindex(index=range(7), columns=range(24))
-    st.markdown("#### Типовий тижневий профіль")
+    st.markdown("#### Порівняння тижневих профілів")
     st.caption(
-        "Середня ціна для кожної години та дня тижня у вибраному періоді. "
-        "Тепліші кольори означають дорожчі години."
+        "Кожна клітинка — середня ціна для конкретної години й дня тижня "
+        "у зазначеному періоді. Перші дві карти мають однакову кольорову шкалу."
     )
-    heatmap = go.Figure(
-        go.Heatmap(
-            z=matrix.values,
-            x=list(matrix.columns),
-            y=[weekday_labels[item] for item in matrix.index],
-            colorscale=[[0, "#10243b"], [0.45, BLUE], [0.72, AMBER], [1, RED]],
-            colorbar=dict(title="грн/МВт·год"),
-            hovertemplate="%{y} · %{x}:00<br>Середня: %{z:,.0f} грн/МВт·год<extra></extra>",
+    comparison_mode = st.radio(
+        "Періоди для порівняння",
+        ("Останні 30 днів проти попередніх 30", "Місяць проти минулого року"),
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    if comparison_mode.startswith("Останні"):
+        periods = rolling_periods(selected_date, 30)
+    else:
+        periods = year_over_year_month_periods(selected_date)
+    weekly_comparison = build_weekly_heatmap_comparison(full_history, periods)
+    shared_values = pd.concat(
+        [
+            weekly_comparison.current.stack(),
+            weekly_comparison.comparison.stack(),
+        ],
+        ignore_index=True,
+    ).dropna()
+    if shared_values.empty:
+        st.info("Для обраних періодів ще немає даних для порівняння.")
+    else:
+        shared_min = float(shared_values.min())
+        shared_max = float(shared_values.max())
+        columns = st.columns(2)
+        period_views = (
+            (
+                columns[0],
+                weekly_comparison.current,
+                weekly_comparison.current_counts,
+                periods.current_start,
+                periods.current_end,
+            ),
+            (
+                columns[1],
+                weekly_comparison.comparison,
+                weekly_comparison.comparison_counts,
+                periods.comparison_start,
+                periods.comparison_end,
+            ),
         )
-    )
-    heatmap.update_layout(**_chart_layout(390, "День тижня"))
-    heatmap.update_xaxes(title="Година", dtick=2)
-    st.plotly_chart(heatmap, width="stretch")
+        for container, matrix, counts, period_start, period_end in period_views:
+            with container:
+                st.markdown(
+                    f"**{period_start.strftime('%d.%m.%Y')}–"
+                    f"{period_end.strftime('%d.%m.%Y')}**"
+                )
+                heatmap = go.Figure(
+                    go.Heatmap(
+                        z=matrix.values,
+                        x=list(matrix.columns),
+                        y=[weekday_labels[item] for item in matrix.index],
+                        customdata=counts.values,
+                        zmin=shared_min,
+                        zmax=shared_max,
+                        colorscale=[
+                            [0, "#10243b"],
+                            [0.45, BLUE],
+                            [0.72, AMBER],
+                            [1, RED],
+                        ],
+                        colorbar=dict(title="грн/МВт·год"),
+                        hovertemplate=(
+                            "%{y} · %{x}:00<br>Середня: %{z:,.0f} грн/МВт·год"
+                            "<br>Спостережень: %{customdata}<extra></extra>"
+                        ),
+                    )
+                )
+                heatmap.update_layout(**_chart_layout(350, "День тижня"))
+                heatmap.update_xaxes(title="Година", dtick=3)
+                st.plotly_chart(heatmap, width="stretch")
+
+        difference_values = weekly_comparison.difference.stack().dropna()
+        st.markdown("**Зміна: поточний період мінус порівняльний**")
+        if difference_values.empty:
+            st.info("Періоди поки не мають спільних клітинок для розрахунку зміни.")
+        else:
+            difference_limit = max(float(difference_values.abs().max()), 1.0)
+            difference_heatmap = go.Figure(
+                go.Heatmap(
+                    z=weekly_comparison.difference.values,
+                    x=list(weekly_comparison.difference.columns),
+                    y=[weekday_labels[item] for item in weekly_comparison.difference.index],
+                    zmin=-difference_limit,
+                    zmax=difference_limit,
+                    zmid=0,
+                    colorscale=[
+                        [0, "#378add"],
+                        [0.5, "#182231"],
+                        [1, "#ef6a5b"],
+                    ],
+                    colorbar=dict(title="Δ грн/МВт·год"),
+                    hovertemplate=(
+                        "%{y} · %{x}:00<br>Зміна: %{z:+,.0f} грн/МВт·год"
+                        "<extra></extra>"
+                    ),
+                )
+            )
+            difference_heatmap.update_layout(**_chart_layout(350, "День тижня"))
+            difference_heatmap.update_xaxes(title="Година", dtick=2)
+            st.plotly_chart(difference_heatmap, width="stretch")
+            st.caption(
+                "Синій — ціна знизилась, червоний — зросла. Порожня клітинка "
+                "означає, що в одному з періодів немає спільних спостережень."
+            )
 
     st.divider()
     st.markdown("### Сезонність і порівняння з минулим роком")

@@ -52,6 +52,7 @@ Phase 5: publication foundation. Durable ingestion, automated refresh, analytics
 - The Forecast tab explicitly labels the current historical method as a baseline. A read-only aggregate readiness table reports coverage for each planned feature family without transferring raw rows from Neon; absent load, generation, or weather history remains visible rather than inferred.
 - Production neighbor-price history can be extended through the manual GitHub `backfill_neighbors` task. Each run is bounded to 31 inclusive days, uses repository secrets, and preserves idempotent conflict detection.
 - The day overview calculates official-style Base, Peak (settlement periods 09–20), and Offpeak indices from validated hourly observations. Effective-dated DAM price-cap regimes are an audited, source-linked code registry because they change infrequently; unverified historical periods remain unavailable and are never backfilled from a newer rule.
+- The Trends heatmap is period-specific rather than generically "typical": it compares trailing versus preceding 30-day windows or matching month-to-date spans year over year. The two level maps share a scale, a third map shows the signed difference, and observation counts keep sparse cells explicit.
 
 ## Security note
 

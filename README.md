@@ -139,6 +139,14 @@ The same view shows proximity to an effective-dated DAM price cap only when a
 regime has been independently verified against an official public decision.
 Unknown historical regimes remain unavailable instead of inheriting a newer cap.
 
+The Trends tab compares weekly price heatmaps over two explicit periods instead
+of presenting one long-range average as a generic "typical" week. Users can
+compare the trailing 30 days with the preceding 30 days or month-to-date with
+the same calendar span one year earlier. Both period maps share one price scale;
+the third diverging map shows the current-minus-comparison change. Hover details
+include observation counts, and missing comparison cells remain empty rather
+than becoming zero.
+
 The context refresh also collects an immutable three-day Open-Meteo forecast vintage for Kyiv, Lviv, Vinnytsia, Odesa, Dnipro, and Kharkiv. Each hourly row preserves its collection vintage, valid time, temperature, cloud cover, shortwave radiation, and 100-metre wind speed. These points are not yet assigned market weights; doing so without measured generation and demand coverage would create false precision. PostgreSQL deployments must apply `migrations/002_weather_forecasts.sql` before enabling this collector.
 
 ## Neighboring EU markets

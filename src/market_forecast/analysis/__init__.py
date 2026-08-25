@@ -15,6 +15,13 @@ from .market_indices import (
     price_cap_diagnostics,
     price_cap_for_date,
 )
+from .heatmap_comparison import (
+    ComparisonPeriods,
+    WeeklyHeatmapComparison,
+    build_weekly_heatmap_comparison,
+    rolling_periods,
+    year_over_year_month_periods,
+)
 from .seasonality import (
     YearOverYearMonth,
     build_monthly_seasonality_profile,
@@ -33,6 +40,11 @@ __all__ = [
     "calculate_daily_price_indices",
     "price_cap_diagnostics",
     "price_cap_for_date",
+    "ComparisonPeriods",
+    "WeeklyHeatmapComparison",
+    "build_weekly_heatmap_comparison",
+    "rolling_periods",
+    "year_over_year_month_periods",
     "YearOverYearMonth",
     "build_monthly_seasonality_profile",
     "build_year_over_year_month",
