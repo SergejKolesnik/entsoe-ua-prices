@@ -132,6 +132,13 @@ GitHub Actions exposes the same operation as `Refresh market data` → `diagnose
 
 The **Фактори ціни** tab is a transparent diagnostic, not a causal model. It compares the selected day with the latest earlier observed day and with the mean of up to seven earlier available days, then separates night, morning, solar hours, evening peak, and late evening. A short Ukrainian summary ranks the largest time-of-day deviation and lists only observed co-movements: DAM volume, neighboring-market prices, and fully covered cross-border flows. The hourly chart overlays both price days with selected-day net imports only when every configured border and direction is complete. Weather, generation availability, and load remain explicitly marked as hypotheses until their decision-time vintages can be selected without future-data leakage.
 
+The day overview reports the Market Operator-style Base, Peak, and Offpeak
+indices. Peak uses settlement periods 09:00–20:00; Offpeak uses 01:00–08:00
+and 21:00–24:00. The calculation keeps valid 23/24/25-period delivery days.
+The same view shows proximity to an effective-dated DAM price cap only when a
+regime has been independently verified against an official public decision.
+Unknown historical regimes remain unavailable instead of inheriting a newer cap.
+
 The context refresh also collects an immutable three-day Open-Meteo forecast vintage for Kyiv, Lviv, Vinnytsia, Odesa, Dnipro, and Kharkiv. Each hourly row preserves its collection vintage, valid time, temperature, cloud cover, shortwave radiation, and 100-metre wind speed. These points are not yet assigned market weights; doing so without measured generation and demand coverage would create false precision. PostgreSQL deployments must apply `migrations/002_weather_forecasts.sql` before enabling this collector.
 
 ## Neighboring EU markets
