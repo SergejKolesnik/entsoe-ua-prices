@@ -162,6 +162,13 @@ For production Neon, the manual `Refresh market data` workflow exposes a bounded
 `backfill_neighbors` task. Each invocation is limited to 31 inclusive days and
 uses GitHub secrets; no token or database URL is entered as a workflow input.
 
+The same workflow exposes `backfill_flows` for historical directed physical
+flows. A run is limited to 14 inclusive delivery days because all selected
+borders are collected in both directions. Retries are idempotent; a transient
+ENTSO-E failure leaves the missing direction explicit and can be retried without
+duplicating already stored intervals. Select `all` or one of `PL`, `SK`, `HU`,
+and `RO`; credentials remain in `DATABASE_URL` and `ENTSOE_TOKEN` GitHub Secrets.
+
 Load official NBU EUR rates and directed ENTSO-E physical flows for the same period:
 
 ```powershell
