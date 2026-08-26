@@ -184,6 +184,11 @@ accepted sale volume is stored in `volume_mwh` only after validating that accept
 and sale volumes are equal.
 Days with incomplete physical-flow coverage on any configured border or direction are
 explicitly excluded from aggregate import/export and price-flow correlation metrics.
+The neighbor-market view overlays the Ukrainian hourly price on the latest complete
+flow profile and reports descriptive correlations for import, export, and net import.
+It scans lags from 0 through 24 hours; positive lag means the flow observation precedes
+the price. The generated explanation is deliberately non-causal and reports missing or
+insufficient evidence instead of substituting zeroes.
 
 Individual market codes are `PL`, `SK`, `HU`, and `RO`. Each market keeps one stable color in the selector, daily trend, and hourly charts. The UI shows the two latest common hourly price days when the selected Ukrainian day is newer than the available neighbor publications. It also shows the latest complete hourly border-flow profile with import above zero, export below zero, and net import as a line; Polish quarter-hour flows are summed into hourly energy. ENTSO-E raw documents remain immutable and normalized rows remain isolated by bidding zone. Since European SDAC moved to a 15-minute market time unit for delivery from 1 October 2025, the parser accepts validated 15/30/60-minute intervals; the UI averages complete sub-hourly price groups into aligned UTC hours for comparison with Ukraine. See the official [ENTSO-E SDAC implementation timeline](https://www.entsoe.eu/network_codes/cacm/implementation/sdac/) and [Transparency Platform extraction guide](https://transparency.entsoe.eu/content/static_content/download?path=%2FStatic+content%2Fweb+api%2FIG-for-TP-data-extraction-process.pdf).
 

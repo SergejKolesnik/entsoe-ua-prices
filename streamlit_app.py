@@ -22,12 +22,14 @@ sys.path.insert(0, str(SOURCE_ROOT))
 
 from market_forecast.config import Settings  # noqa: E402
 from market_forecast.analysis import (  # noqa: E402
+    analyze_flow_price_relationship,
     build_daily_explanation,
     build_hourly_price_flow_comparison,
     build_monthly_seasonality_profile,
     build_price_driver_comparison,
     build_year_over_year_month,
     daily_net_import_comparison,
+    describe_flow_price_relationship,
     neighbor_daily_change,
 )
 from market_forecast.analysis.market_indices import (  # noqa: E402
@@ -1581,6 +1583,10 @@ def _draw_neighbor_markets(
         imports = flow_profile.get("Імпорт", pd.Series(0, index=flow_profile.index))
         exports = flow_profile.get("Експорт", pd.Series(0, index=flow_profile.index))
         net_import = imports - exports
+        selected_ua_price = frame[
+            (frame["market_code"] == "UA")
+            & (frame["delivery_date"] == hourly_flow_date)
+        ].groupby("hour")["price_eur"].mean().reindex(range(24))
 
         st.markdown(
             f"#### Погодинний профіль перетоків · "
@@ -1594,6 +1600,18 @@ def _draw_neighbor_markets(
                 name="Імпорт",
                 marker_color="#58c68d",
                 hovertemplate="%{x}:00 · імпорт %{y:,.0f} МВт·год<extra></extra>",
+            )
+        )
+        hourly_flow_figure.add_trace(
+            go.Scatter(
+                x=selected_ua_price.index,
+                y=selected_ua_price,
+                name="Ціна РДН України",
+                mode="lines+markers",
+                line=dict(color="#b58cff", width=2.5, dash="dot"),
+                marker=dict(size=4),
+                yaxis="y2",
+                hovertemplate="%{x}:00 · %{y:,.2f} EUR/МВт·год<extra></extra>",
             )
         )
         hourly_flow_figure.add_trace(
@@ -1621,6 +1639,13 @@ def _draw_neighbor_markets(
         hourly_layout.update(
             barmode="relative",
             legend=dict(orientation="h", y=1.12),
+            yaxis2=dict(
+                title="EUR/МВт·год",
+                overlaying="y",
+                side="right",
+                showgrid=False,
+                rangemode="tozero",
+            ),
         )
         hourly_flow_figure.update_layout(**hourly_layout)
         hourly_flow_figure.update_xaxes(
@@ -1642,26 +1667,46 @@ def _draw_neighbor_markets(
         ukrainian_hourly = frame[frame["market_code"] == "UA"][
             ["delivery_start", "price_eur"]
         ].copy()
+        ukrainian_hourly["delivery_start"] = ukrainian_hourly["delivery_start"].dt.floor("h")
+        ukrainian_hourly = ukrainian_hourly.groupby("delivery_start", as_index=False)[
+            "price_eur"
+        ].mean()
         flow_hourly = complete_flow_rows.copy()
         flow_hourly["delivery_start"] = flow_hourly["delivery_start"].dt.floor("h")
-        flow_hourly = flow_hourly.groupby("delivery_start", as_index=False)[
-            "net_import_mwh"
-        ].sum()
+        flow_hourly = flow_hourly.groupby(
+            ["delivery_start", "direction"], as_index=False
+        )["energy_mwh"].sum().pivot(
+            index="delivery_start", columns="direction", values="energy_mwh"
+        ).reset_index()
+        flow_hourly = flow_hourly.rename(
+            columns={"Імпорт": "import_mwh", "Експорт": "export_mwh"}
+        )
+        flow_hourly["net_import_mwh"] = (
+            flow_hourly["import_mwh"] - flow_hourly["export_mwh"]
+        )
         aligned_flow = ukrainian_hourly.merge(flow_hourly, on="delivery_start", how="inner")
-        if len(aligned_flow) >= 24:
-            price_flow_correlation = aligned_flow["price_eur"].corr(
-                aligned_flow["net_import_mwh"]
+        relationship = analyze_flow_price_relationship(aligned_flow)
+        if not relationship.empty:
+            st.markdown("#### Зв’язок перетоків з українською ціною")
+            display_relationship = relationship.rename(columns={
+                "factor": "Фактор",
+                "correlation_lag_0": "Кореляція в ту саму годину",
+                "strongest_correlation": "Найсильніша кореляція",
+                "strongest_lag_hours": "Лаг, год",
+                "observations": "Спільних годин",
+            })
+            st.dataframe(
+                display_relationship,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "Кореляція в ту саму годину": st.column_config.NumberColumn(format="%.3f"),
+                    "Найсильніша кореляція": st.column_config.NumberColumn(format="%.3f"),
+                },
             )
-            metric_columns = st.columns(2)
-            metric_columns[0].metric(
-                "Кореляція ціна ↔ чистий імпорт",
-                f"{price_flow_correlation:.3f}",
-            )
-            metric_columns[1].metric("Спільних годин", f"{len(aligned_flow)}")
-            st.caption(
-                "Додатне значення означає, що в цій вибірці вища ціна частіше "
-                "співпадала з більшим чистим імпортом; це не доводить напрям причинності."
-            )
+            explanation = describe_flow_price_relationship(relationship)
+            if explanation:
+                st.info(explanation)
 
     st.caption(
         "Європейські 15-хвилинні MTU агрегуються у погодинне середнє та "
