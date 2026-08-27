@@ -131,6 +131,94 @@ def daily_net_import_comparison(
     }
 
 
+def analyze_flow_price_relationship(
+    aligned: pd.DataFrame,
+    *,
+    max_lag_hours: int = 24,
+    min_observations: int = 24,
+) -> pd.DataFrame:
+    """Measure contemporaneous and lagged associations between flows and price.
+
+    A positive lag means that the flow observation precedes the price observation
+    by that many hours. Results are descriptive and must not be interpreted as
+    evidence of causality.
+    """
+
+    factors = {
+        "import_mwh": "Імпорт",
+        "export_mwh": "Експорт",
+        "net_import_mwh": "Чистий імпорт",
+    }
+    required = {"price_eur", *factors}
+    if (
+        aligned.empty
+        or not required.issubset(aligned.columns)
+        or max_lag_hours < 0
+        or min_observations < 2
+    ):
+        return pd.DataFrame()
+
+    ordered = aligned.sort_values("delivery_start") if "delivery_start" in aligned else aligned
+    rows: list[dict[str, float | int | str]] = []
+    for column, label in factors.items():
+        lag_results: list[tuple[int, float, int]] = []
+        for lag in range(max_lag_hours + 1):
+            pairs = pd.DataFrame(
+                {
+                    "price": pd.to_numeric(ordered["price_eur"], errors="coerce"),
+                    "factor": pd.to_numeric(ordered[column], errors="coerce").shift(lag),
+                }
+            ).dropna()
+            if (
+                len(pairs) < min_observations
+                or pairs["price"].nunique() < 2
+                or pairs["factor"].nunique() < 2
+            ):
+                continue
+            correlation = float(pairs["price"].corr(pairs["factor"]))
+            if pd.notna(correlation):
+                lag_results.append((lag, correlation, len(pairs)))
+        if not lag_results:
+            continue
+        strongest = max(lag_results, key=lambda item: abs(item[1]))
+        contemporaneous = next((item for item in lag_results if item[0] == 0), None)
+        rows.append(
+            {
+                "factor": label,
+                "correlation_lag_0": contemporaneous[1] if contemporaneous else float("nan"),
+                "strongest_correlation": strongest[1],
+                "strongest_lag_hours": strongest[0],
+                "observations": strongest[2],
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def describe_flow_price_relationship(results: pd.DataFrame) -> str | None:
+    """Return a cautious Ukrainian interpretation of the net-import signal."""
+
+    required = {"factor", "strongest_correlation", "strongest_lag_hours", "observations"}
+    if results.empty or not required.issubset(results.columns):
+        return None
+    net_rows = results[results["factor"] == "Чистий імпорт"]
+    if net_rows.empty:
+        return None
+    row = net_rows.iloc[0]
+    correlation = float(row["strongest_correlation"])
+    magnitude = abs(correlation)
+    strength = "слабкий" if magnitude < 0.2 else "помірний" if magnitude < 0.5 else "сильний"
+    direction = "вищою" if correlation > 0 else "нижчою"
+    lag = int(row["strongest_lag_hours"])
+    timing = "в ту саму годину" if lag == 0 else f"через {lag} год після зміни перетоку"
+    return (
+        f"У вибраному періоді зв’язок між чистим імпортом і ціною {strength} "
+        f"(r={correlation:+.2f}, {timing}, n={int(row['observations'])}). "
+        f"Більший чистий імпорт частіше збігався з {direction} ціною. "
+        "Це статистичний збіг, а не доказ впливу; сезонність і добовий профіль "
+        "можуть пояснювати частину зв’язку."
+    )
+
+
 def build_hourly_price_flow_comparison(
     prices: pd.DataFrame,
     flows: pd.DataFrame,

@@ -4,10 +4,12 @@ from datetime import date
 import pandas as pd
 
 from market_forecast.analysis import (
+    analyze_flow_price_relationship,
     build_daily_explanation,
     build_hourly_price_flow_comparison,
     build_price_driver_comparison,
     daily_net_import_comparison,
+    describe_flow_price_relationship,
     neighbor_daily_change,
 )
 
@@ -149,6 +151,46 @@ class PriceDriverComparisonTests(unittest.TestCase):
         )
 
         self.assertIn("нульову базу", summary)
+
+    def test_flow_price_relationship_finds_preceding_signal(self):
+        hours = pd.date_range("2026-08-01", periods=72, freq="h", tz="Europe/Kyiv")
+        imports = pd.Series(
+            [((hour * 37) % 101) + ((hour % 7) * 3) for hour in range(72)],
+            dtype=float,
+        )
+        aligned = pd.DataFrame(
+            {
+                "delivery_start": hours,
+                "import_mwh": imports,
+                "export_mwh": 10.0,
+                "net_import_mwh": imports - 10.0,
+                "price_eur": imports.shift(3),
+            }
+        )
+
+        result = analyze_flow_price_relationship(aligned, max_lag_hours=6)
+
+        net = result.set_index("factor").loc["Чистий імпорт"]
+        self.assertEqual(net["strongest_lag_hours"], 3)
+        self.assertAlmostEqual(net["strongest_correlation"], 1.0)
+        summary = describe_flow_price_relationship(result)
+        self.assertIn("через 3 год", summary)
+        self.assertIn("не доказ", summary)
+
+    def test_flow_price_relationship_rejects_short_or_constant_series(self):
+        aligned = pd.DataFrame(
+            {
+                "price_eur": [100.0] * 10,
+                "import_mwh": range(10),
+                "export_mwh": range(10),
+                "net_import_mwh": [0.0] * 10,
+            }
+        )
+
+        result = analyze_flow_price_relationship(aligned)
+
+        self.assertTrue(result.empty)
+        self.assertIsNone(describe_flow_price_relationship(result))
 
 
 if __name__ == "__main__":
