@@ -23,6 +23,7 @@ sys.path.insert(0, str(SOURCE_ROOT))
 from market_forecast.config import Settings  # noqa: E402
 from market_forecast.analysis import (  # noqa: E402
     analyze_flow_price_relationship,
+    align_hourly_flow_prices,
     build_daily_explanation,
     build_hourly_price_flow_comparison,
     build_monthly_seasonality_profile,
@@ -1667,24 +1668,7 @@ def _draw_neighbor_markets(
         ukrainian_hourly = frame[frame["market_code"] == "UA"][
             ["delivery_start", "price_eur"]
         ].copy()
-        ukrainian_hourly["delivery_start"] = ukrainian_hourly["delivery_start"].dt.floor("h")
-        ukrainian_hourly = ukrainian_hourly.groupby("delivery_start", as_index=False)[
-            "price_eur"
-        ].mean()
-        flow_hourly = complete_flow_rows.copy()
-        flow_hourly["delivery_start"] = flow_hourly["delivery_start"].dt.floor("h")
-        flow_hourly = flow_hourly.groupby(
-            ["delivery_start", "direction"], as_index=False
-        )["energy_mwh"].sum().pivot(
-            index="delivery_start", columns="direction", values="energy_mwh"
-        ).reset_index()
-        flow_hourly = flow_hourly.rename(
-            columns={"Імпорт": "import_mwh", "Експорт": "export_mwh"}
-        )
-        flow_hourly["net_import_mwh"] = (
-            flow_hourly["import_mwh"] - flow_hourly["export_mwh"]
-        )
-        aligned_flow = ukrainian_hourly.merge(flow_hourly, on="delivery_start", how="inner")
+        aligned_flow = align_hourly_flow_prices(ukrainian_hourly, complete_flow_rows)
         relationship = analyze_flow_price_relationship(aligned_flow)
         if not relationship.empty:
             st.markdown("#### Зв’язок перетоків з українською ціною")

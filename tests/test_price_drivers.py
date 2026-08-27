@@ -5,6 +5,7 @@ import pandas as pd
 
 from market_forecast.analysis import (
     analyze_flow_price_relationship,
+    align_hourly_flow_prices,
     build_daily_explanation,
     build_hourly_price_flow_comparison,
     build_price_driver_comparison,
@@ -191,6 +192,27 @@ class PriceDriverComparisonTests(unittest.TestCase):
 
         self.assertTrue(result.empty)
         self.assertIsNone(describe_flow_price_relationship(result))
+
+    def test_dst_repeated_local_hour_aligns_as_two_utc_hours(self):
+        repeated_hours = pd.to_datetime(
+            ["2025-10-26T00:30:00Z", "2025-10-26T01:30:00Z"], utc=True
+        ).tz_convert("Europe/Kyiv")
+        prices = pd.DataFrame(
+            {"delivery_start": repeated_hours, "price_eur": [100.0, 200.0]}
+        )
+        flows = pd.DataFrame(
+            [
+                {"delivery_start": timestamp, "direction": direction, "energy_mwh": value}
+                for timestamp in repeated_hours
+                for direction, value in (("Імпорт", 30.0), ("Експорт", 10.0))
+            ]
+        )
+
+        result = align_hourly_flow_prices(prices, flows)
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result["delivery_start"].nunique(), 2)
+        self.assertEqual(result["net_import_mwh"].tolist(), [20.0, 20.0])
 
 
 if __name__ == "__main__":

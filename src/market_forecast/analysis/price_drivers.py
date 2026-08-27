@@ -194,6 +194,50 @@ def analyze_flow_price_relationship(
     return pd.DataFrame(rows)
 
 
+def align_hourly_flow_prices(
+    prices: pd.DataFrame, flows: pd.DataFrame
+) -> pd.DataFrame:
+    """Align prices and directed flow energy on unambiguous UTC hours."""
+
+    if (
+        prices.empty
+        or flows.empty
+        or not {"delivery_start", "price_eur"}.issubset(prices.columns)
+        or not {"delivery_start", "direction", "energy_mwh"}.issubset(flows.columns)
+    ):
+        return pd.DataFrame()
+
+    hourly_prices = prices.copy()
+    hourly_flows = flows.copy()
+    try:
+        price_times = pd.to_datetime(hourly_prices["delivery_start"])
+        flow_times = pd.to_datetime(hourly_flows["delivery_start"])
+        if price_times.dt.tz is None or flow_times.dt.tz is None:
+            return pd.DataFrame()
+        hourly_prices["delivery_start"] = price_times.dt.tz_convert("UTC").dt.floor("h")
+        hourly_flows["delivery_start"] = flow_times.dt.tz_convert("UTC").dt.floor("h")
+    except (AttributeError, TypeError, ValueError):
+        return pd.DataFrame()
+
+    hourly_prices = hourly_prices.groupby("delivery_start", as_index=False)[
+        "price_eur"
+    ].mean()
+    hourly_flows = hourly_flows.groupby(
+        ["delivery_start", "direction"], as_index=False
+    )["energy_mwh"].sum().pivot(
+        index="delivery_start", columns="direction", values="energy_mwh"
+    ).reset_index()
+    if not {"Імпорт", "Експорт"}.issubset(hourly_flows.columns):
+        return pd.DataFrame()
+    hourly_flows = hourly_flows.rename(
+        columns={"Імпорт": "import_mwh", "Експорт": "export_mwh"}
+    )
+    hourly_flows["net_import_mwh"] = (
+        hourly_flows["import_mwh"] - hourly_flows["export_mwh"]
+    )
+    return hourly_prices.merge(hourly_flows, on="delivery_start", how="inner")
+
+
 def describe_flow_price_relationship(results: pd.DataFrame) -> str | None:
     """Return a cautious Ukrainian interpretation of the net-import signal."""
 

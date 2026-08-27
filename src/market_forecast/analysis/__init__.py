@@ -3,6 +3,7 @@
 from .price_drivers import (
     PRICE_SEGMENTS,
     analyze_flow_price_relationship,
+    align_hourly_flow_prices,
     build_daily_explanation,
     build_hourly_price_flow_comparison,
     build_price_driver_comparison,
@@ -33,6 +34,7 @@ from .seasonality import (
 __all__ = [
     "PRICE_SEGMENTS",
     "analyze_flow_price_relationship",
+    "align_hourly_flow_prices",
     "build_daily_explanation",
     "build_hourly_price_flow_comparison",
     "build_price_driver_comparison",
