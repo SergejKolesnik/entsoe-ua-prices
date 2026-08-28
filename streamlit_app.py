@@ -110,6 +110,40 @@ def _inject_styles() -> None:
         .rdn-subtitle { color: rgba(255,255,255,.46); font-size: 11px; text-transform: uppercase; }
         .rdn-status { color: #aeb7c5; font-size: 12px; text-align: right; }
         .rdn-status strong { color: #ffb800; }
+        section[data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #111927 0%, #0d1420 100%);
+            border-right: 1px solid rgba(255,184,0,.12);
+        }
+        section[data-testid="stSidebar"] [data-testid="stDateInput"] label p {
+            color: #dce2ea; font-weight: 700; font-size: 13px;
+        }
+        section[data-testid="stSidebar"] [data-testid="stDateInput"] input {
+            color: #ffffff; font-weight: 700;
+            background: rgba(5,10,17,.72);
+            border-color: rgba(255,184,0,.22);
+        }
+        .analysis-context-title {
+            color: #ffb800; font-size: 11px; font-weight: 800;
+            letter-spacing: .11em; text-transform: uppercase; margin: 12px 0 7px;
+        }
+        .analysis-context-card {
+            background: linear-gradient(135deg, rgba(26,35,50,.98), rgba(12,19,29,.98));
+            border: 1px solid rgba(255,255,255,.09); border-left: 3px solid #ffb800;
+            border-radius: 8px; padding: 12px 13px; margin: 0 0 9px;
+        }
+        .analysis-context-card.forecast { border-left-color: #58c68d; }
+        .analysis-context-card.freshness { border-left-color: #378add; }
+        .analysis-context-label {
+            color: #8d99aa; font-size: 10px; font-weight: 800;
+            letter-spacing: .08em; text-transform: uppercase;
+        }
+        .analysis-context-value {
+            color: #ffffff; font-size: 18px; font-weight: 800;
+            line-height: 1.2; margin: 4px 0;
+        }
+        .analysis-context-card.forecast .analysis-context-value { color: #7de0aa; }
+        .analysis-context-meta { color: #aab4c2; font-size: 11px; line-height: 1.45; }
+        .analysis-context-meta strong { color: #e8edf4; }
         [data-testid="stMultiSelect"] [data-tag][aria-label="Україна"] {
             background: #b58cff !important; color: #101621 !important;
         }
@@ -172,6 +206,73 @@ def _header(
             Останні ціни: <strong>{latest_date.strftime('%d.%m.%Y')}</strong><br>
             {attempt_line}
           </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _expected_delivery_periods(delivery_date: date) -> int:
+    """Return the number of Kyiv clock-hour periods in one delivery date."""
+
+    start = datetime.combine(delivery_date, time.min, KYIV).astimezone(timezone.utc)
+    end = datetime.combine(
+        delivery_date + timedelta(days=1), time.min, KYIV
+    ).astimezone(timezone.utc)
+    return int((end - start).total_seconds() // 3600)
+
+
+def _latest_common_neighbor_date(repository: SQLiteMarketRepository) -> date | None:
+    """Return the newest delivery date covered by every configured neighbor market."""
+
+    latest_dates = []
+    for market in NEIGHBOR_MARKETS:
+        available = repository.available_period("entsoe", market.bidding_zone_eic)
+        if available is None:
+            return None
+        latest_dates.append(available[1].astimezone(KYIV).date())
+    return min(latest_dates) if latest_dates else None
+
+
+def _draw_analysis_context(
+    date_from: date,
+    date_to: date,
+    selected_date: date,
+    latest_ukrainian_date: date,
+    latest_neighbor_date: date | None,
+    latest_attempt: tuple[date, datetime, str, int, str | None] | None,
+) -> None:
+    """Render an explicit sidebar summary of filters, forecast target, and freshness."""
+
+    target_date = latest_ukrainian_date + timedelta(days=1)
+    period_count = _expected_delivery_periods(target_date)
+    history_days = (date_to - date_from).days + 1
+    calculated_at = datetime.now(KYIV)
+    attempt_text = "спроб ще не було"
+    if latest_attempt is not None:
+        attempt_text = latest_attempt[1].astimezone(KYIV).strftime("%d.%m.%Y %H:%M")
+    neighbor_text = (
+        latest_neighbor_date.strftime("%d.%m.%Y")
+        if latest_neighbor_date is not None
+        else "немає спільної дати"
+    )
+
+    st.markdown(
+        f"""
+        <div class="analysis-context-title">Контекст поточного екрана</div>
+        <div class="analysis-context-card">
+          <div class="analysis-context-label">Вибірка для аналізу</div>
+          <div class="analysis-context-value">{date_from.strftime('%d.%m.%Y')} → {date_to.strftime('%d.%m.%Y')}</div>
+          <div class="analysis-context-meta"><strong>{history_days} днів</strong> · день огляду {selected_date.strftime('%d.%m.%Y')}</div>
+        </div>
+        <div class="analysis-context-card forecast">
+          <div class="analysis-context-label">Базовий прогноз на</div>
+          <div class="analysis-context-value">{target_date.strftime('%d.%m.%Y')}</div>
+          <div class="analysis-context-meta"><strong>{period_count} погодинні періоди</strong> · Europe/Kyiv<br>Розраховано при відкритті: {calculated_at.strftime('%d.%m.%Y %H:%M')}</div>
+        </div>
+        <div class="analysis-context-card freshness">
+          <div class="analysis-context-label">Актуальність джерел</div>
+          <div class="analysis-context-meta">Україна: <strong>до {latest_ukrainian_date.strftime('%d.%m.%Y')}</strong><br>Сусідні ринки: <strong>до {neighbor_text}</strong><br>Остання спроба України: {attempt_text}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1716,12 +1817,13 @@ def main() -> None:
     earliest = available[0].astimezone(KYIV).date()
     latest = available[1].astimezone(KYIV).date()
     latest_attempt = repository.latest_collection_attempt(SOURCE)
+    latest_neighbor_date = _latest_common_neighbor_date(repository)
     _header(latest, latest_attempt)
 
     with st.sidebar:
-        st.markdown("### Період аналізу")
+        st.markdown("### Період і прогноз")
         selected_range = st.date_input(
-            "Дати",
+            "Історичний період",
             value=(earliest, latest),
             min_value=earliest,
             max_value=latest,
@@ -1731,10 +1833,18 @@ def main() -> None:
             return
         date_from, date_to = selected_range
         selected_date = st.date_input(
-            "День на огляді",
+            "Дата огляду",
             value=date_to,
             min_value=date_from,
             max_value=date_to,
+        )
+        _draw_analysis_context(
+            date_from,
+            date_to,
+            selected_date,
+            latest,
+            latest_neighbor_date,
+            latest_attempt,
         )
         st.divider()
         st.caption("Джерело: Оператор ринку України")

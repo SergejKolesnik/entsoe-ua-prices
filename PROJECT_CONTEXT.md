@@ -21,6 +21,7 @@ Phase 5: publication foundation. Durable ingestion, automated refresh, analytics
 - Database credentials are runtime secrets and must never be committed or displayed in the dashboard.
 - Streamlit Community Cloud installs runtime packages from the explicit root `requirements.txt`; keep it aligned with `pyproject.toml`.
 - The public app keepalive uses a scheduled headless-browser visit and verifies the actual dashboard marker; `/healthz` is not accepted as evidence that the user-facing app is awake.
+- The sidebar separates the selected historical window and review date from the forecast delivery date, calculation time, and source-specific freshness. Neighbor freshness means the latest delivery date shared by every configured neighboring market.
 - The old prototype is preserved by Git history and the `prototype-v0` tag.
 - The research PDF in `docs/references/` is retained as a theoretical reference. Its reported monthly statistics are not considered reproduced until the underlying dataset and analysis code are available.
 - Effective-dated price-cap regimes and forecast feature `available_at` timestamps are mandatory parts of the future data model.
