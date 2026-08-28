@@ -2,7 +2,7 @@ name: Keep Streamlit app awake
 
 on:
   schedule:
-    - cron: "17 */6 * * *"
+    - cron: "17 */4 * * *"
   workflow_dispatch:
 
 permissions:
@@ -13,14 +13,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ping:
+  browser-visit:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Keep app awake and verify Streamlit health
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install browser runtime
         run: |
-          response="$(curl --fail --silent --show-error --location \
-            --retry 3 --retry-delay 10 --connect-timeout 15 --max-time 90 \
-            --user-agent "RDN-Market-Intelligence-Keepalive/1.0" \
-            https://rdn-market-intelligence-ua-v2.streamlit.app/healthz)"
-          test "$response" = '{"status":"ok"}'
+          python -m pip install "playwright>=1.50,<2"
+          python -m playwright install --with-deps chromium
+
+      - name: Open, wake, and verify the dashboard
+        env:
+          STREAMLIT_APP_URL: https://rdn-market-intelligence-ua-v2.streamlit.app/
+          STREAMLIT_WAKE_TIMEOUT_SECONDS: "180"
+        run: python scripts/wake_streamlit.py

@@ -80,10 +80,14 @@ python -m streamlit run streamlit_app.py
 
 Streamlit prints the local browser address, normally `http://localhost:8501`. The dashboard reads `data/market_forecast.sqlite3` by default and does not contact or modify SkyGrid Solar. When `DATABASE_URL` is configured, the dashboard and collectors use the dedicated Neon PostgreSQL database instead. Its **Прогноз** tab shows a transparent one-step baseline for the first delivery day after the latest published DAM prices.
 
-The public Streamlit Community Cloud deployment is visited every six hours by
-`.github/workflows/keep-streamlit-awake.yml`. The workflow also verifies the
-Streamlit health endpoint and fails visibly if the app cannot be reached. It can
-be started manually from GitHub Actions when an immediate wake-up check is needed.
+The public Streamlit Community Cloud deployment receives a real browser visit
+every four hours from `.github/workflows/keep-streamlit-awake.yml`. A headless
+Chromium session opens the public page, clicks Streamlit's wake button when it is
+shown, and succeeds only after the `RDN Market Intelligence` dashboard marker is
+visible. This replaces the old `/healthz` ping, which could stay green while the
+user-facing app was asleep. The workflow can also be started manually from
+GitHub Actions. This is a best-effort Community Cloud keepalive, not a hosting
+uptime guarantee.
 
 `DATABASE_URL` is a secret. Configure it only in the Windows user environment, GitHub Actions secrets, or Streamlit secrets; never commit it to Git. SQLite remains the automatic local fallback when the variable is absent.
 
