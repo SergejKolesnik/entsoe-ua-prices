@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+import re
 from zoneinfo import ZoneInfo
 
 from market_forecast.config import Settings
@@ -23,6 +24,9 @@ from market_forecast.weather_locations import WEATHER_LOCATIONS
 
 KYIV = ZoneInfo("Europe/Kyiv")
 UKRAINE_ZONE = "10Y1001C--00003F"
+ENTSOE_HTTP_ERROR = re.compile(
+    r"^ENTSO-E request failed with HTTP status (?P<status>[1-5][0-9]{2})$"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +47,15 @@ class ContextRefreshResult:
     status: str
     records: int = 0
     message: str | None = None
+
+
+def _sanitized_failure_message(exc: Exception) -> str:
+    """Return an allowlisted diagnostic without source URLs or response bodies."""
+
+    match = ENTSOE_HTTP_ERROR.fullmatch(str(exc))
+    if isinstance(exc, RuntimeError) and match:
+        return f"RuntimeError:http_{match.group('status')}"
+    return type(exc).__name__
 
 
 def context_dates(now: datetime | None = None) -> ContextDates:
@@ -114,7 +127,7 @@ def refresh_market_context(
                 source_name,
                 delivery_date,
                 "failed",
-                message=type(exc).__name__,
+                message=_sanitized_failure_message(exc),
             )
         repository.record_collection_attempt(
             result.source,

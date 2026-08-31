@@ -5,10 +5,27 @@ from datetime import date, datetime, timezone
 
 from market_forecast.cli import build_parser
 from market_forecast.services import context_dates
+from market_forecast.services.context_refresh import _sanitized_failure_message
 
 
 class ContextRefreshTests(unittest.TestCase):
     """Verify Kyiv calendar boundaries and CLI registration."""
+
+    def test_allows_only_entsoe_http_status_in_failure_message(self):
+        self.assertEqual(
+            _sanitized_failure_message(
+                RuntimeError("ENTSO-E request failed with HTTP status 401")
+            ),
+            "RuntimeError:http_401",
+        )
+
+    def test_unknown_failure_detail_remains_hidden(self):
+        message = _sanitized_failure_message(
+            RuntimeError("secret token in https://example.test/private")
+        )
+
+        self.assertEqual(message, "RuntimeError")
+        self.assertNotIn("secret", message)
 
     def test_context_dates_use_kyiv_calendar(self):
         instant = datetime(2026, 8, 19, 21, 30, tzinfo=timezone.utc)
