@@ -16,6 +16,7 @@ Phase 5: publication foundation. Durable ingestion, automated refresh, analytics
 - Market Operator and ENTSO-E are separate source adapters behind a raw-response boundary.
 - Domain timestamps are timezone-aware and normalized to UTC.
 - Missing settlement periods are validation errors, not zero-valued observations.
+- The first gas-market UI is additive and read-only: it shows internal monthly procurement price composition, same-calendar-month comparisons, and aggregate daily plan/actual consumption from normalized database tables. It does not expose source worksheet names or claim to provide public exchange/hub benchmarks yet.
 - Git-tracked CSV is retired as operational storage.
 - Storage selection is configuration-driven: Neon is used only when `DATABASE_URL` is present, while SQLite remains the local fallback.
 - Database credentials are runtime secrets and must never be committed or displayed in the dashboard.
