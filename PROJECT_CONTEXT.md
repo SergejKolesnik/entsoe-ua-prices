@@ -1,6 +1,6 @@
 # Ukraine Energy Market Forecast — Project Context
 
-Last updated: 2026-08-21
+Last updated: 2026-09-07
 
 ## Purpose
 
@@ -57,6 +57,7 @@ Phase 5: publication foundation. Durable ingestion, automated refresh, analytics
 - The Neighbor Markets flow block overlays the Ukrainian hourly price and evaluates import, export, and net-import associations at lags 0-24 hours. Only complete cross-border days enter these descriptive metrics; the narrative explicitly avoids causal claims.
 - The day overview calculates official-style Base, Peak (settlement periods 09–20), and Offpeak indices from validated hourly observations. Effective-dated DAM price-cap regimes are an audited, source-linked code registry because they change infrequently; unverified historical periods remain unavailable and are never backfilled from a newer rule.
 - The Trends heatmap is period-specific rather than generically "typical": it compares trailing versus preceding 30-day windows or matching month-to-date spans year over year. The two level maps share a scale, a third map shows the signed difference, and observation counts keep sparse cells explicit.
+- Internal gas procurement is an additive bounded context. Google Sheets remains the read-only source of truth; normalized monthly price composition and daily planned/actual consumption use dedicated tables and never reuse electricity price contracts. Commodity gas, distribution, capacity booking, total price, VAT semantics, and missing future actuals remain explicit. The initial CSV transport is suitable only while the workbook is readable by the runtime; private service-account access and public-display aggregation require separate approval.
 
 ## Security note
 
@@ -74,3 +75,4 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
 6. Add regression fixtures for documented 23/25-period operator days when available.
 7. Validate the Neon adapter against migrated data, then deploy a read-only Streamlit staging application.
 8. After review, enable the `Publish Hermes report JSON` workflow and verify the first `hermes-report` branch publication before configuring Hermes.
+9. Validate the gas importer across the historical worksheet naming variants, decide the confidential/public aggregation boundary, then add UEEX market prices and a private authentication path before any gas dashboard publication.

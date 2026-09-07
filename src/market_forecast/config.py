@@ -13,6 +13,7 @@ class Settings:
 
     entsoe_token: str | None
     database_url: str | None = None
+    gas_spreadsheet_id: str | None = None
     request_timeout_seconds: float = 30.0
     database_path: Path = Path("data/market_forecast.sqlite3")
     raw_data_directory: Path = Path("data/raw")
@@ -28,6 +29,7 @@ class Settings:
         return cls(
             entsoe_token=token,
             database_url=os.getenv("DATABASE_URL") or None,
+            gas_spreadsheet_id=os.getenv("GAS_SPREADSHEET_ID") or None,
             request_timeout_seconds=timeout,
             database_path=Path(os.getenv("DATABASE_PATH", "data/market_forecast.sqlite3")),
             raw_data_directory=Path(os.getenv("RAW_DATA_DIRECTORY", "data/raw")),
@@ -39,3 +41,10 @@ class Settings:
         if not self.entsoe_token:
             raise RuntimeError("ENTSOE_TOKEN is required for ENTSO-E requests")
         return self.entsoe_token
+
+    def require_gas_spreadsheet_id(self) -> str:
+        """Return the configured read-only Sheet id without logging it."""
+
+        if not self.gas_spreadsheet_id:
+            raise RuntimeError("GAS_SPREADSHEET_ID is required for gas imports")
+        return self.gas_spreadsheet_id

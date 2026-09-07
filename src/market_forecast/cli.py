@@ -103,6 +103,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report.add_argument("--date", type=date.fromisoformat, dest="delivery_date")
     report.add_argument("--output", required=True)
+    gas_import = subparsers.add_parser(
+        "import-gas-sheet",
+        help="Import one internal gas-price worksheet without modifying Google Sheets.",
+    )
+    gas_import.add_argument("--month", required=True, type=date.fromisoformat)
+    gas_import.add_argument("--sheet", required=True, dest="sheet_name")
     return parser
 
 
@@ -448,6 +454,34 @@ def main(argv: list[str] | None = None) -> int:
             f"status={report_payload['status']} output={args.output}"
         )
         return 0 if report_payload["status"] == "complete" else 2
+    if args.command == "import-gas-sheet":
+        from datetime import datetime, timezone
+
+        from market_forecast.config import Settings
+        from market_forecast.parsers import parse_gas_procurement_csv
+        from market_forecast.persistence import create_market_repository
+        from market_forecast.sources import GoogleSheetsGasSource
+
+        settings = Settings.from_environment()
+        if args.month.day != 1:
+            raise SystemExit("--month must be the first day of a month (YYYY-MM-01)")
+        response = GoogleSheetsGasSource(
+            settings.require_gas_spreadsheet_id(),
+            timeout_seconds=settings.request_timeout_seconds,
+        ).fetch_worksheet(args.sheet_name)
+        month, days = parse_gas_procurement_csv(
+            response.require_content(), args.month, args.sheet_name
+        )
+        repository = create_market_repository(settings.database_path, settings.database_url)
+        stored_months, stored_days = repository.store_gas_procurement(
+            month, days, datetime.now(timezone.utc)
+        )
+        actual_days = sum(item.actual_volume_m3 is not None for item in days)
+        print(
+            f"Gas procurement imported: month={args.month:%Y-%m} "
+            f"months={stored_months} days={stored_days} actual_days={actual_days}"
+        )
+        return 0
     return 0
 
 
