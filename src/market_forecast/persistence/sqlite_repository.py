@@ -9,7 +9,10 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Iterable
 
-from market_forecast.domain import CrossBorderFlow, HourlyMarketPrice, WeatherForecastPoint
+from market_forecast.domain import (
+    CrossBorderFlow, GasConsumptionDay, GasProcurementMonth,
+    HourlyMarketPrice, WeatherForecastPoint,
+)
 from market_forecast.persistence.raw_artifacts import StoredArtifact
 
 
@@ -147,8 +150,105 @@ class SQLiteMarketRepository:
                     sample_count INTEGER NOT NULL CHECK (sample_count > 0),
                     UNIQUE (forecast_run_id, delivery_start_utc)
                 );
+
+                CREATE TABLE IF NOT EXISTS gas_procurement_months (
+                    reporting_month TEXT PRIMARY KEY,
+                    commodity_price_uah_per_1000m3 TEXT NOT NULL,
+                    distribution_price_uah_per_1000m3 TEXT NOT NULL,
+                    capacity_price_uah_per_1000m3 TEXT NOT NULL,
+                    total_price_uah_per_1000m3 TEXT NOT NULL,
+                    planned_volume_m3 TEXT NOT NULL,
+                    vat_included INTEGER NOT NULL CHECK (vat_included IN (0, 1)),
+                    source_sheet TEXT NOT NULL,
+                    imported_at_utc TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS gas_consumption_days (
+                    delivery_date TEXT PRIMARY KEY,
+                    planned_volume_m3 TEXT NOT NULL,
+                    actual_volume_m3 TEXT,
+                    source_sheet TEXT NOT NULL,
+                    imported_at_utc TEXT NOT NULL
+                );
                 """
             )
+
+    def store_gas_procurement(
+        self,
+        month: GasProcurementMonth,
+        days: Iterable[GasConsumptionDay],
+        imported_at_utc: datetime,
+    ) -> tuple[int, int]:
+        """Upsert one mutable source month and its daily actual observations."""
+
+        imported_at = _utc_iso(imported_at_utc, "imported_at_utc")
+        rows = list(days)
+        if any(item.delivery_date.replace(day=1) != month.reporting_month for item in rows):
+            raise ValueError("Gas daily rows must belong to reporting_month")
+        self.initialize()
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """INSERT INTO gas_procurement_months (
+                       reporting_month, commodity_price_uah_per_1000m3,
+                       distribution_price_uah_per_1000m3,
+                       capacity_price_uah_per_1000m3, total_price_uah_per_1000m3,
+                       planned_volume_m3, vat_included, source_sheet, imported_at_utc
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(reporting_month) DO UPDATE SET
+                       commodity_price_uah_per_1000m3 = excluded.commodity_price_uah_per_1000m3,
+                       distribution_price_uah_per_1000m3 = excluded.distribution_price_uah_per_1000m3,
+                       capacity_price_uah_per_1000m3 = excluded.capacity_price_uah_per_1000m3,
+                       total_price_uah_per_1000m3 = excluded.total_price_uah_per_1000m3,
+                       planned_volume_m3 = excluded.planned_volume_m3,
+                       vat_included = excluded.vat_included,
+                       source_sheet = excluded.source_sheet,
+                       imported_at_utc = excluded.imported_at_utc""",
+                (
+                    month.reporting_month.isoformat(),
+                    str(month.commodity_price_uah_per_1000m3),
+                    str(month.distribution_price_uah_per_1000m3),
+                    str(month.capacity_price_uah_per_1000m3),
+                    str(month.total_price_uah_per_1000m3),
+                    str(month.planned_volume_m3), month.vat_included,
+                    month.source_sheet, imported_at,
+                ),
+            )
+            for item in rows:
+                connection.execute(
+                    """INSERT INTO gas_consumption_days (
+                           delivery_date, planned_volume_m3, actual_volume_m3,
+                           source_sheet, imported_at_utc
+                       ) VALUES (?, ?, ?, ?, ?)
+                       ON CONFLICT(delivery_date) DO UPDATE SET
+                           planned_volume_m3 = excluded.planned_volume_m3,
+                           actual_volume_m3 = excluded.actual_volume_m3,
+                           source_sheet = excluded.source_sheet,
+                           imported_at_utc = excluded.imported_at_utc""",
+                    (
+                        item.delivery_date.isoformat(), str(item.planned_volume_m3),
+                        str(item.actual_volume_m3) if item.actual_volume_m3 is not None else None,
+                        item.source_sheet, imported_at,
+                    ),
+                )
+        return 1, len(rows)
+
+    def list_gas_procurement_months(self) -> list[tuple]:
+        """Return normalized monthly price composition in chronological order."""
+
+        self.initialize()
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT reporting_month, commodity_price_uah_per_1000m3,
+                          distribution_price_uah_per_1000m3,
+                          capacity_price_uah_per_1000m3, total_price_uah_per_1000m3,
+                          planned_volume_m3, vat_included, source_sheet, imported_at_utc
+                   FROM gas_procurement_months ORDER BY reporting_month"""
+            ).fetchall()
+        return [
+            (date.fromisoformat(row[0]), *(Decimal(value) for value in row[1:6]),
+             bool(row[6]), row[7], _parse_utc(row[8]))
+            for row in rows
+        ]
 
     def store_collection(
         self,

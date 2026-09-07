@@ -242,6 +242,39 @@ section according to its own `status`. Full field semantics are documented in
 
 ## Data-source responsibilities
 
+## Internal gas procurement import
+
+The gas module starts with a read-only import boundary for the existing monthly
+Google Sheets worksheets. The source spreadsheet remains authoritative; the
+application never writes to it and Streamlit will later read normalized database
+rows rather than fetch Google Sheets during page rendering.
+
+Configure the spreadsheet id outside source control, apply
+`migrations/003_gas_procurement.sql` to PostgreSQL, and import one evaluated
+monthly worksheet:
+
+```powershell
+$env:GAS_SPREADSHEET_ID = "configured-outside-git"
+python -m market_forecast.cli import-gas-sheet `
+  --month 2026-09-01 `
+  --sheet "9 ціна газу у вересні 26"
+```
+
+The parser keeps commodity gas, distribution, capacity booking, and total price
+as separate UAH/1,000 m3 values, all excluding VAT. It verifies that the
+components reproduce the total within rounding tolerance. Daily planned and
+actual consumption are stored separately; blank future actuals remain null.
+Repeated imports update the current mutable month instead of creating duplicates.
+
+The current transport uses Google's evaluated CSV view and therefore requires
+the worksheet to be readable by the runtime. Do not make a confidential workbook
+public merely to satisfy this importer. A private service-account transport must
+be added before restricting access; the spreadsheet id and any future credential
+belong in runtime secrets and must never be committed.
+
+This first stage intentionally does not expose internal procurement values in the
+public dashboard. Publication scope and aggregation must be approved separately.
+
 - `OperatorMarketSource` discovers published results and returns raw source metadata.
 - `EntsoeSource` downloads raw XML and does not parse or persist it.
 - `parse_price_document` converts ENTSO-E XML to immutable hourly records.
