@@ -65,6 +65,11 @@ MARKET_COLORS = {
     "HU": RED,
     "RO": BLUE,
 }
+UKRAINIAN_MONTHS = {
+    1: "Січень", 2: "Лютий", 3: "Березень", 4: "Квітень",
+    5: "Травень", 6: "Червень", 7: "Липень", 8: "Серпень",
+    9: "Вересень", 10: "Жовтень", 11: "Листопад", 12: "Грудень",
+}
 
 
 def _repository(database_path: Path | str) -> SQLiteMarketRepository:
@@ -329,6 +334,54 @@ def _load_price_volumes(
     return frame
 
 
+@st.cache_data(ttl=300)
+def _load_gas_procurement(database_path: str) -> pd.DataFrame:
+    """Load normalized monthly gas procurement aggregates from app storage."""
+
+    rows = _repository(database_path).list_gas_procurement_months()
+    columns = [
+        "reporting_month", "commodity_price", "distribution_price",
+        "capacity_price", "total_price", "planned_volume_m3", "vat_included",
+        "source_sheet", "imported_at_utc",
+    ]
+    frame = pd.DataFrame(rows, columns=columns)
+    if frame.empty:
+        return frame
+    frame["reporting_month"] = pd.to_datetime(frame["reporting_month"])
+    for column in (
+        "commodity_price", "distribution_price", "capacity_price",
+        "total_price", "planned_volume_m3",
+    ):
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    return frame.sort_values("reporting_month")
+
+
+@st.cache_data(ttl=300)
+def _load_gas_consumption(
+    database_path: str, date_from: date, date_to: date
+) -> pd.DataFrame:
+    """Load daily gas plan and actuals from app storage without querying Sheets."""
+
+    rows = _repository(database_path).list_gas_consumption_days(date_from, date_to)
+    frame = pd.DataFrame(
+        rows,
+        columns=[
+            "delivery_date", "planned_volume_m3", "actual_volume_m3",
+            "source_sheet", "imported_at_utc",
+        ],
+    )
+    if frame.empty:
+        return frame
+    frame["delivery_date"] = pd.to_datetime(frame["delivery_date"])
+    frame["planned_volume_m3"] = pd.to_numeric(
+        frame["planned_volume_m3"], errors="coerce"
+    )
+    frame["actual_volume_m3"] = pd.to_numeric(
+        frame["actual_volume_m3"], errors="coerce"
+    )
+    return frame.sort_values("delivery_date")
+
+
 def _chart_layout(height: int, y_title: str) -> dict:
     return dict(
         height=height,
@@ -340,6 +393,165 @@ def _chart_layout(height: int, y_title: str) -> dict:
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
         xaxis=dict(gridcolor="rgba(255,255,255,.06)"),
         yaxis=dict(title=y_title, gridcolor="rgba(255,255,255,.07)"),
+    )
+
+
+def _format_integer(value: float) -> str:
+    """Format dashboard quantities with readable Ukrainian thousands separators."""
+
+    return f"{value:,.0f}".replace(",", " ")
+
+
+def _draw_gas_market(database_path: Path | str) -> None:
+    """Render internal natural-gas procurement and consumption analytics."""
+
+    st.markdown("### Ринок природного газу")
+    st.caption(
+        "Внутрішня ціна закупівлі та споживання газу. Ціни наведені без ПДВ; "
+        "дані читаються з бази застосунку, а не напряму з Google-таблиці."
+    )
+    monthly = _load_gas_procurement(str(database_path))
+    if monthly.empty:
+        st.info("Дані газового ринку ще не імпортовані.")
+        return
+
+    latest = monthly.iloc[-1]
+    surcharge = max(float(latest["total_price"] - latest["commodity_price"]), 0.0)
+    latest_label = latest["reporting_month"].strftime("%m.%Y")
+    metric_columns = st.columns(4)
+    metric_columns[0].metric(
+        f"Товарний газ · {latest_label}",
+        f"{_format_integer(float(latest['commodity_price']))} грн/тис. м³",
+    )
+    metric_columns[1].metric(
+        "Повна ціна без ПДВ",
+        f"{_format_integer(float(latest['total_price']))} грн/тис. м³",
+    )
+    metric_columns[2].metric(
+        "Розподіл і потужність",
+        f"{_format_integer(surcharge)} грн/тис. м³",
+    )
+    metric_columns[3].metric(
+        "Плановий обсяг",
+        f"{_format_integer(float(latest['planned_volume_m3']))} м³",
+    )
+
+    price_figure = go.Figure()
+    price_figure.add_trace(go.Scatter(
+        x=monthly["reporting_month"], y=monthly["commodity_price"],
+        mode="lines+markers", name="Товарний газ", line=dict(color=AMBER, width=3),
+        connectgaps=False,
+    ))
+    price_figure.add_trace(go.Scatter(
+        x=monthly["reporting_month"], y=monthly["total_price"],
+        mode="lines+markers", name="Повна ціна", line=dict(color=BLUE, width=2),
+        connectgaps=False,
+    ))
+    price_figure.update_layout(**_chart_layout(390, "грн/1 000 м³ без ПДВ"))
+    st.markdown("#### Динаміка закупівельної ціни")
+    st.plotly_chart(price_figure, width="stretch")
+
+    composition_figure = go.Figure()
+    for column, label, color in (
+        ("commodity_price", "Товарний газ", AMBER),
+        ("distribution_price", "Розподіл", "#58c68d"),
+        ("capacity_price", "Бронювання потужності", BLUE),
+    ):
+        composition_figure.add_trace(go.Bar(
+            x=monthly["reporting_month"], y=monthly[column], name=label,
+            marker_color=color,
+        ))
+    composition_figure.update_layout(
+        **_chart_layout(360, "грн/1 000 м³ без ПДВ"), barmode="stack"
+    )
+    st.markdown("#### З чого складається повна ціна")
+    st.plotly_chart(composition_figure, width="stretch")
+
+    available_month_numbers = sorted(monthly["reporting_month"].dt.month.unique())
+    default_month = int(latest["reporting_month"].month)
+    selected_month_number = st.selectbox(
+        "Порівняти однаковий місяць у різні роки",
+        available_month_numbers,
+        index=available_month_numbers.index(default_month),
+        format_func=lambda month: UKRAINIAN_MONTHS[int(month)],
+        key="gas_same_month",
+    )
+    comparison = monthly[
+        monthly["reporting_month"].dt.month == selected_month_number
+    ].copy()
+    comparison["Рік"] = comparison["reporting_month"].dt.year.astype(str)
+    comparison_figure = go.Figure()
+    comparison_figure.add_trace(go.Bar(
+        x=comparison["Рік"], y=comparison["commodity_price"],
+        name="Товарний газ", marker_color=AMBER,
+    ))
+    comparison_figure.add_trace(go.Bar(
+        x=comparison["Рік"], y=comparison["total_price"],
+        name="Повна ціна", marker_color=BLUE,
+    ))
+    comparison_figure.update_layout(
+        **_chart_layout(330, "грн/1 000 м³ без ПДВ"), barmode="group"
+    )
+    st.plotly_chart(comparison_figure, width="stretch")
+    if len(comparison) < 3:
+        st.caption(
+            "Для стійкого висновку про сезонність потрібно щонайменше три "
+            "зіставні роки; наразі це лише описове порівняння."
+        )
+
+    month_options = monthly["reporting_month"].dt.date.tolist()
+    selected_reporting_month = st.selectbox(
+        "Місяць для аналізу споживання",
+        month_options,
+        index=len(month_options) - 1,
+        format_func=lambda value: f"{UKRAINIAN_MONTHS[value.month]} {value.year}",
+        key="gas_consumption_month",
+    )
+    next_month = (pd.Timestamp(selected_reporting_month) + pd.offsets.MonthBegin(1)).date()
+    daily = _load_gas_consumption(
+        str(database_path), selected_reporting_month, next_month - timedelta(days=1)
+    )
+    st.markdown("#### План і фактичне споживання")
+    if daily.empty:
+        st.info("Для вибраного місяця немає добових даних споживання.")
+    else:
+        known = daily.dropna(subset=["actual_volume_m3"])
+        actual_total = float(known["actual_volume_m3"].sum())
+        planned_to_date = float(known["planned_volume_m3"].sum())
+        consumption_columns = st.columns(3)
+        consumption_columns[0].metric(
+            "Факт за наявні дні", f"{_format_integer(actual_total)} м³"
+        )
+        consumption_columns[1].metric(
+            "План за ті самі дні", f"{_format_integer(planned_to_date)} м³"
+        )
+        utilization = actual_total / planned_to_date * 100 if planned_to_date else None
+        consumption_columns[2].metric(
+            "Факт до плану",
+            f"{utilization:.1f}%" if utilization is not None else "Немає бази",
+        )
+        consumption_figure = go.Figure()
+        consumption_figure.add_trace(go.Scatter(
+            x=daily["delivery_date"], y=daily["planned_volume_m3"],
+            mode="lines", name="Добовий план", line=dict(color=MUTED, dash="dot"),
+        ))
+        consumption_figure.add_trace(go.Bar(
+            x=daily["delivery_date"], y=daily["actual_volume_m3"],
+            name="Фактичне споживання", marker_color=AMBER,
+        ))
+        consumption_figure.update_layout(**_chart_layout(380, "м³/добу"))
+        st.plotly_chart(consumption_figure, width="stretch")
+        missing_count = int(daily["actual_volume_m3"].isna().sum())
+        if missing_count:
+            st.caption(
+                f"Немає фактичного значення для {missing_count} днів. "
+                "Вони не зараховуються як нульове споживання."
+            )
+
+    st.info(
+        "Ця вкладка показує внутрішню закупівельну ціну та споживання. "
+        "Публічні індикатори українських і європейських газових ринків "
+        "додамо окремим етапом після перевірки джерел і одиниць виміру."
     )
 
 
@@ -1869,13 +2081,14 @@ def main() -> None:
         "Огляд",
         "Тенденції",
         "Фактори ціни",
+        "Ринок газу",
         "Прогноз",
         "Сусідні ринки",
     ]
     if show_technical:
         tab_labels.append("Технічний стан")
     tabs = st.tabs(tab_labels)
-    overview, trends, drivers, forecast, neighbors = tabs[:5]
+    overview, trends, drivers, gas_market, forecast, neighbors = tabs[:6]
     with overview:
         _draw_overview(frame, selected_date)
         _draw_market_volume(settings.database_path, selected_date)
@@ -1886,6 +2099,8 @@ def main() -> None:
         _draw_price_drivers(
             settings.database_path, frame, date_from, date_to, selected_date
         )
+    with gas_market:
+        _draw_gas_market(settings.database_path)
     with forecast:
         full_history = _load_prices(str(settings.database_path), earliest, latest)
         _draw_forecast_readiness(settings.database_path)
@@ -1894,7 +2109,7 @@ def main() -> None:
     with neighbors:
         _draw_neighbor_markets(settings.database_path, date_from, date_to, selected_date)
     if show_technical:
-        with tabs[5]:
+        with tabs[6]:
             st.markdown("### Якість і повнота даних")
             _draw_quality(settings.database_path, date_from, date_to)
             st.divider()

@@ -16,7 +16,7 @@ The project is intentionally separate from SkyGrid Solar. It provides source ada
 - Test 23-, 24-, and 25-period trading days without inventing missing values.
 - Store immutable raw responses by SHA-256 and normalized prices idempotently in SQLite.
 - Parse official Market Operator legacy XLS workbooks using their verified hourly layout.
-- Explore stored prices in a dark Streamlit dashboard with five decision-oriented tabs: overview, trends, price drivers, forecast, and neighboring markets. Calendar-aligned year-over-year seasonality and the weekly heatmap live under Trends; quality and forecast monitoring remain available through an optional Technical status tab.
+- Explore stored prices in a dark Streamlit dashboard with six decision-oriented tabs: overview, trends, price drivers, gas market, forecast, and neighboring markets. The gas tab reads normalized internal monthly price composition and daily plan/actual consumption from the app database; it never queries Google Sheets during a page view. Calendar-aligned year-over-year seasonality and the weekly heatmap live under Trends; quality and forecast monitoring remain available through an optional Technical status tab.
 - Inspect aggregate forecast-feature coverage without downloading raw Neon rows. The Forecast tab labels the current result as a baseline and shows explicit minimum-history readiness for prices, volumes, neighboring markets, FX, flows, weather, load, and generation.
 
 ## Setup

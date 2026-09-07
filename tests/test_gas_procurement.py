@@ -84,11 +84,17 @@ class GasProcurementTests(unittest.TestCase):
             repository.store_gas_procurement(month, days, datetime(2026, 9, 8, tzinfo=timezone.utc))
 
             stored = repository.list_gas_procurement_months()
+            stored_days = repository.list_gas_consumption_days(
+                date(2026, 9, 2), date(2026, 9, 3)
+            )
 
         self.assertEqual(len(stored), 1)
         self.assertEqual(stored[0][0], date(2026, 9, 1))
         self.assertEqual(stored[0][1], Decimal("19041.66"))
         self.assertEqual(stored[0][-1], datetime(2026, 9, 8, tzinfo=timezone.utc))
+        self.assertEqual([row[0] for row in stored_days], [date(2026, 9, 2), date(2026, 9, 3)])
+        self.assertEqual(stored_days[0][2], Decimal("2758.0"))
+        self.assertIsNone(stored_days[1][2])
 
 
 if __name__ == "__main__":

@@ -250,6 +250,36 @@ class SQLiteMarketRepository:
             for row in rows
         ]
 
+    def list_gas_consumption_days(
+        self, date_from: date | None = None, date_to: date | None = None
+    ) -> list[tuple]:
+        """Return daily gas plan and actuals inside an optional inclusive range."""
+
+        self.initialize()
+        query = """SELECT delivery_date, planned_volume_m3, actual_volume_m3,
+                          source_sheet, imported_at_utc
+                   FROM gas_consumption_days WHERE 1 = 1"""
+        parameters: list[str] = []
+        if date_from is not None:
+            query += " AND delivery_date >= ?"
+            parameters.append(date_from.isoformat())
+        if date_to is not None:
+            query += " AND delivery_date <= ?"
+            parameters.append(date_to.isoformat())
+        query += " ORDER BY delivery_date"
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, parameters).fetchall()
+        return [
+            (
+                date.fromisoformat(row[0]),
+                Decimal(row[1]),
+                Decimal(row[2]) if row[2] is not None else None,
+                row[3],
+                _parse_utc(row[4]),
+            )
+            for row in rows
+        ]
+
     def store_collection(
         self,
         artifact: StoredArtifact,
