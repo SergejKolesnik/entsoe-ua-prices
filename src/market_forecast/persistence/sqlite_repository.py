@@ -14,6 +14,7 @@ from market_forecast.domain import (
     HourlyMarketPrice, WeatherForecastPoint,
 )
 from market_forecast.persistence.raw_artifacts import StoredArtifact
+from market_forecast.domain.gas_history import GasHistoryMonth
 
 
 class SQLiteMarketRepository:
@@ -170,8 +171,81 @@ class SQLiteMarketRepository:
                     source_sheet TEXT NOT NULL,
                     imported_at_utc TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS gas_monthly_history (
+                    reporting_month TEXT PRIMARY KEY,
+                    commodity_price TEXT NOT NULL,
+                    transportation_price TEXT NOT NULL,
+                    distribution_price TEXT NOT NULL,
+                    total_price TEXT NOT NULL,
+                    plant_volume_m3 TEXT NOT NULL,
+                    sanatorium_volume_m3 TEXT NOT NULL,
+                    total_volume_m3 TEXT NOT NULL,
+                    amount_uah TEXT NOT NULL,
+                    vat_included INTEGER NOT NULL CHECK (vat_included = 1),
+                    source_url TEXT NOT NULL,
+                    source_sheet TEXT NOT NULL,
+                    raw_sha256 TEXT NOT NULL,
+                    imported_at_utc TEXT NOT NULL
+                );
                 """
             )
+
+    def store_gas_history(
+        self, months: Iterable[GasHistoryMonth], source_url: str, source_sheet: str,
+        raw_sha256: str, imported_at_utc: datetime,
+    ) -> int:
+        """Insert a complete verified year atomically; reject conflicting history."""
+        import re
+        rows = list(months)
+        if len(rows) != 12 or [r.reporting_month for r in rows] != [
+            date(rows[0].reporting_month.year, m, 1) for m in range(1, 13)
+        ]:
+            raise ValueError("History import requires one complete ordered year")
+        if not source_url.startswith("https://docs.google.com/spreadsheets/d/") or not source_sheet.strip():
+            raise ValueError("Invalid history source")
+        if not re.fullmatch(r"[0-9a-f]{64}", raw_sha256):
+            raise ValueError("Invalid history raw hash")
+        imported_at = _utc_iso(imported_at_utc, "imported_at_utc")
+        self.initialize()
+        inserted = 0
+        with closing(self._connect()) as connection, connection:
+            for row in rows:
+                numbers = tuple(getattr(row, name) for name in (
+                    "commodity_price", "transportation_price", "distribution_price", "total_price",
+                    "plant_volume_m3", "sanatorium_volume_m3", "total_volume_m3", "amount_uah",
+                ))
+                cursor = connection.execute(
+                    """INSERT INTO gas_monthly_history VALUES
+                       (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(reporting_month) DO NOTHING""",
+                    (row.reporting_month.isoformat(), *map(str, numbers), True,
+                     source_url, source_sheet, raw_sha256, imported_at),
+                )
+                inserted += cursor.rowcount
+                stored = connection.execute(
+                    """SELECT commodity_price, transportation_price, distribution_price, total_price,
+                              plant_volume_m3, sanatorium_volume_m3, total_volume_m3, amount_uah,
+                              vat_included, source_url, source_sheet
+                       FROM gas_monthly_history WHERE reporting_month = ?""",
+                    (row.reporting_month.isoformat(),),
+                ).fetchone()
+                if (tuple(Decimal(v) for v in stored[:8]) != numbers
+                        or not stored[8] or stored[9:] != (source_url, source_sheet)):
+                    raise ValueError(f"Conflicting gas history for {row.reporting_month}; no rows committed")
+        return inserted
+
+    def list_gas_history(self) -> list[tuple]:
+        """Read monthly facts with native VAT and source metadata in date order."""
+        self.initialize()
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT reporting_month, commodity_price, transportation_price, distribution_price,
+                          total_price, plant_volume_m3, sanatorium_volume_m3, total_volume_m3,
+                          amount_uah, vat_included, source_url, source_sheet, raw_sha256, imported_at_utc
+                   FROM gas_monthly_history ORDER BY reporting_month"""
+            ).fetchall()
+        return [(date.fromisoformat(r[0]), *(Decimal(v) for v in r[1:9]), bool(r[9]),
+                 *r[10:13], _parse_utc(r[13])) for r in rows]
 
     def store_gas_procurement(
         self,

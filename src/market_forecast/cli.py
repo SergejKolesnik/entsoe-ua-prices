@@ -109,6 +109,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     gas_import.add_argument("--month", required=True, type=date.fromisoformat)
     gas_import.add_argument("--sheet", required=True, dest="sheet_name")
+    annual = subparsers.add_parser("import-gas-year", help="Validate annual gas history; write only with --write.")
+    annual.add_argument("--year", type=int, required=True)
+    annual.add_argument("--sheet", required=True, dest="sheet_name")
+    annual.add_argument("--write", action="store_true")
     return parser
 
 
@@ -454,6 +458,30 @@ def main(argv: list[str] | None = None) -> int:
             f"status={report_payload['status']} output={args.output}"
         )
         return 0 if report_payload["status"] == "complete" else 2
+    if args.command == "import-gas-year":
+        from datetime import datetime, timezone
+        from market_forecast.config import Settings
+        from market_forecast.parsers.gas_history_csv import parse_gas_history_csv
+        from market_forecast.persistence import create_market_repository
+        from market_forecast.persistence.raw_artifacts import RawArtifactStore
+        from market_forecast.sources import GoogleSheetsGasSource
+
+        settings = Settings.from_environment()
+        response = GoogleSheetsGasSource(settings.require_gas_spreadsheet_id()).fetch_worksheet(args.sheet_name)
+        artifact = RawArtifactStore(settings.raw_data_directory).save(
+            response.require_content(), "gas-annual", date(args.year, 1, 1), "csv"
+        )
+        months = parse_gas_history_csv(response.content, args.year)
+        inserted = None
+        if args.write:
+            repository = create_market_repository(settings.database_path, settings.database_url)
+            inserted = repository.store_gas_history(
+                months, response.source_url, args.sheet_name, artifact.sha256, datetime.now(timezone.utc)
+            )
+        print(json.dumps({"mode": "write" if args.write else "dry-run", "months": len(months),
+                          "inserted": inserted, "total_volume_m3": str(sum(m.total_volume_m3 for m in months)),
+                          "amount_uah": str(sum(m.amount_uah for m in months)), "raw_sha256": artifact.sha256}))
+        return 0
     if args.command == "import-gas-sheet":
         from datetime import datetime, timezone
 
