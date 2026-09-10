@@ -4,6 +4,12 @@
 
 Independent Python foundation for collecting and validating Ukrainian day-ahead electricity-market data.
 
+Annual gas history is supported by `import-gas-year --year 2023 --sheet 2023`
+(dry-run by default, `--write` for the selected database). It adds verified monthly
+plant/sanatorium facts to the consumption chart without fabricating daily data.
+PostgreSQL requires migration 004 before deployment. See
+[annual gas history](docs/gas-annual-history.md) for validation and rollout steps.
+
 The project is intentionally separate from SkyGrid Solar. It provides source adapters, normalized domain models, raw artifact landing, SQLite persistence, settlement-period validation, and an independent Streamlit dashboard. Forecasting is not activated yet.
 
 ## Current capabilities

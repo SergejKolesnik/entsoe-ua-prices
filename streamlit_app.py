@@ -396,24 +396,29 @@ def _chart_layout(height: int, y_title: str) -> dict:
     )
 
 
+@st.cache_data(ttl=300)
+def _load_gas_history(database_path: str) -> list[tuple]:
+    """Read verified annual-sheet monthly facts without querying Google Sheets."""
+    return _repository(database_path).list_gas_history()
+
+
+@st.cache_data(ttl=300)
+def _load_gas_monthly_consumption(database_path: str) -> pd.DataFrame:
+    """Combine monthly history and daily coverage for the consumption overview."""
+    from market_forecast.services.gas_consumption import monthly_consumption
+    return pd.DataFrame(monthly_consumption(
+        _load_gas_history(database_path), _repository(database_path).list_gas_consumption_days()
+    ))
+
+
 def _format_integer(value: float) -> str:
     """Format dashboard quantities with readable Ukrainian thousands separators."""
 
     return f"{value:,.0f}".replace(",", " ")
 
 
-def _draw_gas_market(database_path: Path | str) -> None:
-    """Render internal natural-gas procurement and consumption analytics."""
-
-    st.markdown("### Ринок природного газу")
-    st.caption(
-        "Внутрішня ціна закупівлі та споживання газу. Ціни наведені без ПДВ; "
-        "дані читаються з бази застосунку, а не напряму з Google-таблиці."
-    )
-    monthly = _load_gas_procurement(str(database_path))
-    if monthly.empty:
-        st.info("Дані газового ринку ще не імпортовані.")
-        return
+def _draw_gas_prices(monthly: pd.DataFrame) -> None:
+    """Render existing procurement price charts independently of consumption history."""
 
     latest = monthly.iloc[-1]
     surcharge = max(float(latest["total_price"] - latest["commodity_price"]), 0.0)
@@ -499,7 +504,59 @@ def _draw_gas_market(database_path: Path | str) -> None:
             "зіставні роки; наразі це лише описове порівняння."
         )
 
-    month_options = monthly["reporting_month"].dt.date.tolist()
+
+def _draw_gas_market(database_path: Path | str) -> None:
+    """Render internal natural-gas procurement and consumption analytics."""
+
+    st.markdown("### Ринок природного газу")
+    st.caption(
+        "Внутрішня ціна закупівлі та споживання газу. Ціни наведені без ПДВ; "
+        "дані читаються з бази застосунку, а не напряму з Google-таблиці."
+    )
+    monthly = _load_gas_procurement(str(database_path))
+    if monthly.empty:
+        st.info("Дані газового ринку ще не імпортовані.")
+    else:
+        _draw_gas_prices(monthly)
+
+    history = _load_gas_history(str(database_path))
+    history_frame = _load_gas_monthly_consumption(str(database_path))
+    if not history_frame.empty:
+        st.markdown("#### Споживання газу за місяцями")
+        history_figure = go.Figure()
+        for column, label, color in (
+            ("plant_volume_m3", "Завод", AMBER),
+            ("sanatorium_volume_m3", "Профілакторій", BLUE),
+        ):
+            history_figure.add_trace(go.Bar(
+                x=history_frame["reporting_month"],
+                y=[float(v) if v is not None else None for v in history_frame[column]],
+                name=label, marker_color=color,
+                customdata=history_frame["coverage"],
+                hovertemplate="%{x|%m.%Y}: %{y:,.2f} м³<br>%{customdata}<extra>%{fullData.name}</extra>",
+            ))
+        history_figure.update_layout(**_chart_layout(380, "м³/місяць"), barmode="stack")
+        st.plotly_chart(history_figure, width="stretch")
+        st.caption(
+            "2023: підтверджений місячний факт заводу та профілакторію. "
+            "Для добових джерел показано завод і зазначено повноту даних; "
+            "відсутні обсяги профілакторію не означають нуль. Місячні й добові записи не додаються між собою."
+        )
+        display = history_frame.rename(columns={
+            "reporting_month": "Місяць", "plant_volume_m3": "Завод, м³",
+            "sanatorium_volume_m3": "Профілакторій, м³", "total_volume_m3": "Разом, м³",
+            "coverage": "Повнота даних", "actual_days": "Днів із фактом",
+        }).copy()
+        display["Місяць"] = pd.to_datetime(display["Місяць"]).dt.strftime("%Y-%m")
+        for column in ("Завод, м³", "Профілакторій, м³", "Разом, м³"):
+            display[column] = pd.to_numeric(display[column], errors="coerce")
+        st.dataframe(display, hide_index=True, width="stretch")
+
+    price_months = monthly["reporting_month"].dt.date.tolist() if not monthly.empty else []
+    month_options = sorted(set(price_months) | {r[0] for r in history}
+                           | set(history_frame["reporting_month"] if not history_frame.empty else []))
+    if not month_options:
+        return
     selected_reporting_month = st.selectbox(
         "Місяць для аналізу споживання",
         month_options,
@@ -513,7 +570,14 @@ def _draw_gas_market(database_path: Path | str) -> None:
     )
     st.markdown("#### План і фактичне споживання")
     if daily.empty:
-        st.info("Для вибраного місяця немає добових даних споживання.")
+        historical = next((r for r in history if r[0] == selected_reporting_month), None)
+        if historical:
+            columns = st.columns(3)
+            for column, label, value in zip(columns, ("Завод", "Профілакторій", "Разом"), historical[5:8]):
+                column.metric(label, f"{float(value):,.2f} м³".replace(",", " "))
+            st.info("Підтверджений місячний факт. Добової деталізації та плану в річному джерелі немає.")
+        else:
+            st.info("Для вибраного місяця немає добових даних споживання.")
     else:
         known = daily.dropna(subset=["actual_volume_m3"])
         actual_total = float(known["actual_volume_m3"].sum())
