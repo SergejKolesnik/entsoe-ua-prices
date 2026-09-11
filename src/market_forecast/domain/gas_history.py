@@ -10,6 +10,7 @@ class GasHistoryMonth:
     """Native VAT-inclusive annual-sheet values; volumes are normalized to m3."""
 
     reporting_month: date
+    commodity_price_excluding_vat: Decimal
     commodity_price: Decimal
     transportation_price: Decimal
     distribution_price: Decimal
@@ -22,11 +23,14 @@ class GasHistoryMonth:
     def __post_init__(self) -> None:
         if type(self.reporting_month) is not date or self.reporting_month.day != 1:
             raise ValueError("History month must be the first day of a month")
-        for value in (self.commodity_price, self.transportation_price, self.distribution_price,
+        for value in (self.commodity_price_excluding_vat, self.commodity_price,
+                      self.transportation_price, self.distribution_price,
                       self.total_price, self.plant_volume_m3, self.sanatorium_volume_m3,
                       self.total_volume_m3, self.amount_uah):
             if not isinstance(value, Decimal) or not value.is_finite() or value < 0:
                 raise ValueError("History values must be finite nonnegative Decimals")
+        if abs(self.commodity_price - self.commodity_price_excluding_vat * Decimal("1.20")) > Decimal("0.01"):
+            raise ValueError("Gas history commodity price VAT values do not match")
         if abs(self.total_price - self.commodity_price - self.transportation_price
                - self.distribution_price) > Decimal("0.01"):
             raise ValueError("Gas history price components do not match")

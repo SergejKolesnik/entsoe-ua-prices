@@ -1,8 +1,9 @@
 # Annual gas consumption history
 
 The `2023` source is a verified annual worksheet with twelve monthly rows.
-It is not compatible with the daily procurement sheet contract: it contains
-VAT-inclusive prices, transportation and distribution charges, actual plant and
+It is not compatible with the daily procurement sheet contract: it contains a
+separate verified commodity price without VAT, VAT-inclusive prices, transportation
+and distribution charges, actual plant and
 sanatorium volumes in thousands of cubic metres, and billed amounts. It has no
 daily series or planned volumes. The user confirmed the small sanatorium and
 December quantities; the importer must preserve them without heuristic corrections.
@@ -11,10 +12,12 @@ December quantities; the importer must preserve them without heuristic correctio
 
 `import-gas-year` accepts the explicitly versioned annual CSV layout, including
 the verified Google gviz variant that collapses the title into the header.
-It checks the year, labels/units/VAT, all twelve ordered months, price components,
+It checks the year, labels/units/VAT, the explicit 20% relation between the two
+commodity-price columns, all twelve ordered months, price components,
 volume components, billed amounts and annual totals. Missing is never zero.
-Volumes alone are multiplied by 1,000 to obtain m3; prices remain VAT-inclusive
-UAH/1000m3. The monthly amount tolerance is one kopeck; the annual amount tolerance
+Volumes alone are multiplied by 1,000 to obtain m3. The annual source prices remain
+VAT-inclusive UAH/1000m3, apart from the explicitly labelled commodity-price-without-VAT
+field. The monthly amount tolerance is one kopeck; the annual amount tolerance
 is six kopecks to allow twelve displayed monthly amounts rounded to cents.
 
 Raw CSV is saved to the existing content-addressed `data/raw` store before parsing.
@@ -53,9 +56,11 @@ plant-only daily sources. A month with no known daily actuals stays missing.
 The selector includes historical months even without procurement-price records.
 For a month with annual-sheet history and no daily data, the UI shows exact
 monthly plant, sanatorium and total metrics, and explains that daily details and
-plans are unavailable. Source prices are retained in storage but are not merged
-into existing VAT-exclusive price charts. Those charts and daily collectors keep
-their existing behavior.
+plans are unavailable. The 2023 commodity price without VAT appears as its own
+confirmed series in the VAT-exclusive procurement-price chart. Its yearly source
+does not provide complete prices and components without VAT, so those values are
+not inferred or mixed into the existing full-price and composition series.
+Missing months are explicit gaps, never lines drawn across absent observations.
 
 ## Verification and rollout boundary
 

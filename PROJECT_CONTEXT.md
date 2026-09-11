@@ -70,11 +70,13 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
 - Feature `codex/gas-2023-monthly-history` adds the user-verified annual 2023
   worksheet as monthly facts, including the explicitly confirmed small sanatorium
   volumes. It uses a separate history table, strict annual parser, dry-run CLI,
-  and monthly consumption chart/table; existing daily data and VAT-exclusive
-  procurement price charts are preserved. Local tests and Streamlit AppTest against
+  and monthly consumption chart/table. A pending follow-up uses the new explicit
+  commodity-price-without-VAT column as a distinct 2023 price series; it does not
+  infer a VAT-exclusive full price or delivery components. Local tests and Streamlit AppTest against
   a development Neon branch passed. Migration 004 and all twelve verified months
   are now in production Neon; prior 29 procurement months and 881 daily rows were
-  preserved. The UI code awaits separate publication approval. See
+  preserved. The 2023 consumption UI is published; a separate release approval is
+  required for the pending price-series follow-up. See
   `docs/gas-annual-history.md` for verification and rollout steps.
 
 1. Accumulate at least 14–30 real frozen forecasts and monitor operational stability.

@@ -173,6 +173,7 @@ class SQLiteMarketRepository:
                 );
                 CREATE TABLE IF NOT EXISTS gas_monthly_history (
                     reporting_month TEXT PRIMARY KEY,
+                    commodity_price_excluding_vat TEXT NOT NULL,
                     commodity_price TEXT NOT NULL,
                     transportation_price TEXT NOT NULL,
                     distribution_price TEXT NOT NULL,
@@ -189,6 +190,9 @@ class SQLiteMarketRepository:
                 );
                 """
             )
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(gas_monthly_history)")}
+            if "commodity_price_excluding_vat" not in columns:
+                connection.execute("ALTER TABLE gas_monthly_history ADD COLUMN commodity_price_excluding_vat TEXT")
 
     def store_gas_history(
         self, months: Iterable[GasHistoryMonth], source_url: str, source_sheet: str,
@@ -211,26 +215,43 @@ class SQLiteMarketRepository:
         with closing(self._connect()) as connection, connection:
             for row in rows:
                 numbers = tuple(getattr(row, name) for name in (
-                    "commodity_price", "transportation_price", "distribution_price", "total_price",
+                    "commodity_price_excluding_vat", "commodity_price", "transportation_price", "distribution_price", "total_price",
                     "plant_volume_m3", "sanatorium_volume_m3", "total_volume_m3", "amount_uah",
                 ))
                 cursor = connection.execute(
-                    """INSERT INTO gas_monthly_history VALUES
-                       (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """INSERT INTO gas_monthly_history (
+                         reporting_month, commodity_price_excluding_vat, commodity_price,
+                         transportation_price, distribution_price, total_price, plant_volume_m3,
+                         sanatorium_volume_m3, total_volume_m3, amount_uah, vat_included,
+                         source_url, source_sheet, raw_sha256, imported_at_utc
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                        ON CONFLICT(reporting_month) DO NOTHING""",
                     (row.reporting_month.isoformat(), *map(str, numbers), True,
                      source_url, source_sheet, raw_sha256, imported_at),
                 )
                 inserted += cursor.rowcount
                 stored = connection.execute(
-                    """SELECT commodity_price, transportation_price, distribution_price, total_price,
+                    """SELECT commodity_price_excluding_vat, commodity_price, transportation_price, distribution_price, total_price,
                               plant_volume_m3, sanatorium_volume_m3, total_volume_m3, amount_uah,
                               vat_included, source_url, source_sheet
                        FROM gas_monthly_history WHERE reporting_month = ?""",
                     (row.reporting_month.isoformat(),),
                 ).fetchone()
-                if (tuple(Decimal(v) for v in stored[:8]) != numbers
-                        or not stored[8] or stored[9:] != (source_url, source_sheet)):
+                legacy_price_missing = stored[0] is None
+                if legacy_price_missing and tuple(Decimal(v) for v in stored[1:9]) == numbers[1:]:
+                    connection.execute(
+                        "UPDATE gas_monthly_history SET commodity_price_excluding_vat = ?, raw_sha256 = ?, imported_at_utc = ? WHERE reporting_month = ?",
+                        (str(numbers[0]), raw_sha256, imported_at, row.reporting_month.isoformat()),
+                    )
+                    stored = connection.execute(
+                        """SELECT commodity_price_excluding_vat, commodity_price, transportation_price, distribution_price, total_price,
+                                  plant_volume_m3, sanatorium_volume_m3, total_volume_m3, amount_uah,
+                                  vat_included, source_url, source_sheet
+                           FROM gas_monthly_history WHERE reporting_month = ?""",
+                        (row.reporting_month.isoformat(),),
+                    ).fetchone()
+                if (tuple(Decimal(v) for v in stored[:9]) != numbers
+                        or not stored[9] or stored[10:] != (source_url, source_sheet)):
                     raise ValueError(f"Conflicting gas history for {row.reporting_month}; no rows committed")
         return inserted
 
@@ -239,13 +260,13 @@ class SQLiteMarketRepository:
         self.initialize()
         with closing(self._connect()) as connection:
             rows = connection.execute(
-                """SELECT reporting_month, commodity_price, transportation_price, distribution_price,
+                """SELECT reporting_month, commodity_price_excluding_vat, commodity_price, transportation_price, distribution_price,
                           total_price, plant_volume_m3, sanatorium_volume_m3, total_volume_m3,
                           amount_uah, vat_included, source_url, source_sheet, raw_sha256, imported_at_utc
                    FROM gas_monthly_history ORDER BY reporting_month"""
             ).fetchall()
-        return [(date.fromisoformat(r[0]), *(Decimal(v) for v in r[1:9]), bool(r[9]),
-                 *r[10:13], _parse_utc(r[13])) for r in rows]
+        return [(date.fromisoformat(r[0]), *(Decimal(v) for v in r[1:10]), bool(r[10]),
+                 *r[11:14], _parse_utc(r[14])) for r in rows]
 
     def store_gas_procurement(
         self,

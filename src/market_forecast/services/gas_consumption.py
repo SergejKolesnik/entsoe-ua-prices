@@ -9,8 +9,8 @@ def monthly_consumption(history: list[tuple], days: list[tuple]) -> list[dict]:
     """Prefer verified monthly facts; never add them to overlapping daily values."""
     result = {}
     for row in history:
-        result[row[0]] = dict(reporting_month=row[0], plant_volume_m3=row[5],
-                              sanatorium_volume_m3=row[6], total_volume_m3=row[7],
+        result[row[0]] = dict(reporting_month=row[0], plant_volume_m3=row[6],
+                              sanatorium_volume_m3=row[7], total_volume_m3=row[8],
                               coverage="Місячний факт", actual_days=None)
     grouped = defaultdict(list)
     for row in days:
