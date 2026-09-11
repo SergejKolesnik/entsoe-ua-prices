@@ -407,6 +407,12 @@ def _load_gas_history(database_path: str, schema_version: int) -> list[tuple]:
 
 
 @st.cache_data(ttl=300)
+def _load_gas_price_history(database_path: str) -> list[tuple]:
+    """Read historical price-only rows without implying consumption facts."""
+    return _repository(database_path).list_gas_price_history()
+
+
+@st.cache_data(ttl=300)
 def _load_gas_monthly_consumption(database_path: str, schema_version: int) -> pd.DataFrame:
     """Combine monthly history and daily coverage for the consumption overview."""
     from market_forecast.services.gas_consumption import monthly_consumption
@@ -431,7 +437,29 @@ def _monthly_price_series(frame: pd.DataFrame, value_column: str) -> pd.DataFram
     return result.rename_axis("reporting_month").reset_index()
 
 
-def _draw_gas_prices(monthly: pd.DataFrame, history: list[tuple]) -> None:
+def _vat_exclusive_history_prices(history: list[tuple]) -> pd.DataFrame:
+    """Project verified 2023 VAT-inclusive annual prices into the displayed VAT basis."""
+
+    frame = pd.DataFrame(history, columns=[
+        "reporting_month", "commodity_price_excluding_vat", "commodity_price", "transportation_price",
+        "distribution_price", "total_price", "plant_volume_m3", "sanatorium_volume_m3",
+        "total_volume_m3", "amount_uah", "vat_included", "source_url", "source_sheet",
+        "raw_sha256", "imported_at_utc",
+    ])
+    if frame.empty:
+        return pd.DataFrame(columns=["reporting_month", "commodity_price", "distribution_price", "capacity_price", "total_price"])
+    for column in ("commodity_price_excluding_vat", "transportation_price", "distribution_price", "total_price"):
+        frame[column] = pd.to_numeric(frame[column], errors="raise")
+    return pd.DataFrame({
+        "reporting_month": pd.to_datetime(frame["reporting_month"]),
+        "commodity_price": frame["commodity_price_excluding_vat"],
+        "distribution_price": frame["distribution_price"] / 1.2,
+        "capacity_price": frame["transportation_price"] / 1.2,
+        "total_price": frame["total_price"] / 1.2,
+    })
+
+
+def _draw_gas_prices(monthly: pd.DataFrame, history: list[tuple], price_history: list[tuple]) -> None:
     """Render compatible VAT-exclusive commodity prices without inventing missing components."""
 
     latest = monthly.iloc[-1]
@@ -455,31 +483,24 @@ def _draw_gas_prices(monthly: pd.DataFrame, history: list[tuple]) -> None:
         f"{_format_integer(float(latest['planned_volume_m3']))} м³",
     )
 
+    display_prices = monthly[["reporting_month", "commodity_price", "distribution_price", "capacity_price", "total_price"]].copy()
+    display_prices = pd.concat([display_prices, _vat_exclusive_history_prices(history)], ignore_index=True)
+    if price_history:
+        imported_prices = pd.DataFrame(price_history, columns=[
+            "reporting_month", "commodity_price", "distribution_price", "capacity_price", "total_price",
+            "source_url", "source_sheet", "raw_sha256", "imported_at_utc",
+        ])
+        imported_prices["reporting_month"] = pd.to_datetime(imported_prices["reporting_month"])
+        display_prices = pd.concat([display_prices, imported_prices[display_prices.columns]], ignore_index=True)
+    display_prices = display_prices.drop_duplicates("reporting_month", keep="first").sort_values("reporting_month")
     price_figure = go.Figure()
-    procurement_commodity = _monthly_price_series(monthly, "commodity_price")
+    procurement_commodity = _monthly_price_series(display_prices, "commodity_price")
     price_figure.add_trace(go.Scatter(
         x=procurement_commodity["reporting_month"], y=procurement_commodity["commodity_price"],
         mode="lines+markers", name="Товарний газ", line=dict(color=AMBER, width=3),
         connectgaps=False,
     ))
-    if history:
-        history_prices = pd.DataFrame(history, columns=[
-            "reporting_month", "commodity_price_excluding_vat", "commodity_price", "transportation_price",
-            "distribution_price", "total_price", "plant_volume_m3", "sanatorium_volume_m3",
-            "total_volume_m3", "amount_uah", "vat_included", "source_url", "source_sheet",
-            "raw_sha256", "imported_at_utc",
-        ])
-        history_prices["reporting_month"] = pd.to_datetime(history_prices["reporting_month"])
-        history_prices["commodity_price_excluding_vat"] = pd.to_numeric(
-            history_prices["commodity_price_excluding_vat"], errors="coerce"
-        )
-        history_prices = _monthly_price_series(history_prices, "commodity_price_excluding_vat")
-        price_figure.add_trace(go.Scatter(
-            x=history_prices["reporting_month"], y=history_prices["commodity_price_excluding_vat"],
-            mode="lines+markers", name="Товарний газ · 2023", line=dict(color="#f6c344", width=3, dash="dot"),
-            connectgaps=False,
-        ))
-    total_prices = _monthly_price_series(monthly, "total_price")
+    total_prices = _monthly_price_series(display_prices, "total_price")
     price_figure.add_trace(go.Scatter(
         x=total_prices["reporting_month"], y=total_prices["total_price"],
         mode="lines+markers", name="Повна ціна", line=dict(color=BLUE, width=2),
@@ -490,8 +511,8 @@ def _draw_gas_prices(monthly: pd.DataFrame, history: list[tuple]) -> None:
     st.plotly_chart(price_figure, width="stretch")
     if history:
         st.caption(
-            "2023: товарний газ без ПДВ взято з окремого підтвердженого стовпця річного джерела. "
-            "Повна ціна та її складники за 2023 збережені лише з ПДВ, тому в цей графік не додаються."
+            "2023: товарний газ без ПДВ взято з окремого підтвердженого стовпця. Повну ціну, "
+            "розподіл і транспортування приведено до базису без ПДВ діленням на підтверджену ставку 20%."
         )
 
     composition_figure = go.Figure()
@@ -501,7 +522,7 @@ def _draw_gas_prices(monthly: pd.DataFrame, history: list[tuple]) -> None:
         ("capacity_price", "Бронювання потужності", BLUE),
     ):
         composition_figure.add_trace(go.Bar(
-            x=monthly["reporting_month"], y=monthly[column], name=label,
+            x=display_prices["reporting_month"], y=display_prices[column], name=label,
             marker_color=color,
         ))
     composition_figure.update_layout(
@@ -510,7 +531,7 @@ def _draw_gas_prices(monthly: pd.DataFrame, history: list[tuple]) -> None:
     st.markdown("#### З чого складається повна ціна")
     st.plotly_chart(composition_figure, width="stretch")
 
-    available_month_numbers = sorted(monthly["reporting_month"].dt.month.unique())
+    available_month_numbers = sorted(display_prices["reporting_month"].dt.month.unique())
     default_month = int(latest["reporting_month"].month)
     selected_month_number = st.selectbox(
         "Порівняти однаковий місяць у різні роки",
@@ -519,8 +540,8 @@ def _draw_gas_prices(monthly: pd.DataFrame, history: list[tuple]) -> None:
         format_func=lambda month: UKRAINIAN_MONTHS[int(month)],
         key="gas_same_month",
     )
-    comparison = monthly[
-        monthly["reporting_month"].dt.month == selected_month_number
+    comparison = display_prices[
+        display_prices["reporting_month"].dt.month == selected_month_number
     ].copy()
     comparison["Рік"] = comparison["reporting_month"].dt.year.astype(str)
     comparison_figure = go.Figure()
@@ -555,7 +576,8 @@ def _draw_gas_market(database_path: Path | str) -> None:
     if monthly.empty:
         st.info("Дані газового ринку ще не імпортовані.")
     else:
-        _draw_gas_prices(monthly, _load_gas_history(str(database_path), GAS_HISTORY_CACHE_VERSION))
+        _draw_gas_prices(monthly, _load_gas_history(str(database_path), GAS_HISTORY_CACHE_VERSION),
+                         _load_gas_price_history(str(database_path)))
 
     history = _load_gas_history(str(database_path), GAS_HISTORY_CACHE_VERSION)
     history_frame = _load_gas_monthly_consumption(str(database_path), GAS_HISTORY_CACHE_VERSION)

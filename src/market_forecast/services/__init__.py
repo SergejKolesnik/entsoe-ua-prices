@@ -14,6 +14,7 @@ from .context_refresh import (
     context_dates,
     refresh_market_context,
 )
+from .gas_price_history import HISTORICAL_PRICE_WORKSHEETS, historical_price_worksheets
 
 __all__ = [
     "BackfillDayResult",
@@ -36,4 +37,6 @@ __all__ = [
     "ContextRefreshResult",
     "context_dates",
     "refresh_market_context",
+    "HISTORICAL_PRICE_WORKSHEETS",
+    "historical_price_worksheets",
 ]

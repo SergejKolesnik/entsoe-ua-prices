@@ -113,6 +113,13 @@ def build_parser() -> argparse.ArgumentParser:
     annual.add_argument("--year", type=int, required=True)
     annual.add_argument("--sheet", required=True, dest="sheet_name")
     annual.add_argument("--write", action="store_true")
+    price_history = subparsers.add_parser(
+        "import-gas-price-history",
+        help="Validate audited hidden monthly price worksheets; write only with --write.",
+    )
+    price_history.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
+    price_history.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
+    price_history.add_argument("--write", action="store_true")
     return parser
 
 
@@ -509,6 +516,45 @@ def main(argv: list[str] | None = None) -> int:
             f"Gas procurement imported: month={args.month:%Y-%m} "
             f"months={stored_months} days={stored_days} actual_days={actual_days}"
         )
+        return 0
+    if args.command == "import-gas-price-history":
+        from datetime import datetime, timezone
+        from market_forecast.config import Settings
+        from market_forecast.parsers import parse_gas_procurement_csv
+        from market_forecast.persistence import create_market_repository
+        from market_forecast.persistence.raw_artifacts import RawArtifactStore
+        from market_forecast.services.gas_price_history import historical_price_worksheets
+        from market_forecast.sources import GoogleSheetsGasSource
+
+        worksheets = historical_price_worksheets(args.date_from, args.date_to)
+        if not worksheets:
+            raise SystemExit("No audited historical gas price worksheets in the requested range")
+        settings = Settings.from_environment()
+        source = GoogleSheetsGasSource(settings.require_gas_spreadsheet_id(), settings.request_timeout_seconds)
+        artifact_store = RawArtifactStore(settings.raw_data_directory)
+        parsed = []
+        for item in worksheets:
+            response = source.fetch_worksheet(item.sheet_name)
+            content = response.require_content()
+            artifact = artifact_store.save(content, "gas-price-history", item.reporting_month, "csv")
+            try:
+                month, _days = parse_gas_procurement_csv(
+                    content, item.reporting_month, item.sheet_name, include_days=False
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"Historical gas price worksheet {item.sheet_name!r} failed validation: {exc}"
+                ) from exc
+            parsed.append((item, response.source_url, artifact.sha256, month))
+        written = 0
+        if args.write:
+            repository = create_market_repository(settings.database_path, settings.database_url)
+            for _item, source_url, raw_sha256, month in parsed:
+                written += repository.store_gas_price_history(month, source_url, raw_sha256, datetime.now(timezone.utc))
+        print(json.dumps({"mode": "write" if args.write else "dry-run", "months": len(parsed),
+                          "written": written if args.write else None,
+                          "range": [args.date_from.isoformat(), args.date_to.isoformat()],
+                          "sheets": [item.sheet_name for item, *_ in parsed]}))
         return 0
     return 0
 
