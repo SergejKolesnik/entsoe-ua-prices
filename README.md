@@ -275,6 +275,16 @@ components reproduce the total within rounding tolerance. Daily planned and
 actual consumption are stored separately; blank future actuals remain null.
 Repeated imports update the current mutable month instead of creating duplicates.
 
+For audited historical price-only worksheets, including hidden Google Sheets tabs,
+run a dry audit first. The command fetches each explicitly registered sheet,
+validates that its VAT-exclusive components reproduce the total, and does not
+write to the database unless `--write` is supplied:
+
+```powershell
+python -m market_forecast.cli import-gas-price-history `
+  --from 2022-02-01 --to 2024-12-01
+```
+
 The current transport uses Google's evaluated CSV view and therefore requires
 the worksheet to be readable by the runtime. Do not make a confidential workbook
 public merely to satisfy this importer. A private service-account transport must

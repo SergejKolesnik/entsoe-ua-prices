@@ -188,6 +188,17 @@ class SQLiteMarketRepository:
                     raw_sha256 TEXT NOT NULL,
                     imported_at_utc TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS gas_price_history (
+                    reporting_month TEXT PRIMARY KEY,
+                    commodity_price TEXT NOT NULL,
+                    distribution_price TEXT NOT NULL,
+                    capacity_price TEXT NOT NULL,
+                    total_price TEXT NOT NULL,
+                    source_url TEXT NOT NULL,
+                    source_sheet TEXT NOT NULL,
+                    raw_sha256 TEXT NOT NULL,
+                    imported_at_utc TEXT NOT NULL
+                );
                 """
             )
             columns = {row[1] for row in connection.execute("PRAGMA table_info(gas_monthly_history)")}
@@ -267,6 +278,45 @@ class SQLiteMarketRepository:
             ).fetchall()
         return [(date.fromisoformat(r[0]), *(Decimal(v) for v in r[1:10]), bool(r[10]),
                  *r[11:14], _parse_utc(r[14])) for r in rows]
+
+    def store_gas_price_history(
+        self, month: GasProcurementMonth, source_url: str, raw_sha256: str, imported_at_utc: datetime,
+    ) -> int:
+        """Store a price-only historical month without any consumption plan or daily facts."""
+        import re
+        if month.vat_included or not source_url.startswith("https://docs.google.com/spreadsheets/d/"):
+            raise ValueError("Historical price source must be VAT-exclusive Google Sheets data")
+        if not re.fullmatch(r"[0-9a-f]{64}", raw_sha256):
+            raise ValueError("Invalid historical gas price raw hash")
+        self.initialize()
+        imported_at = _utc_iso(imported_at_utc, "imported_at_utc")
+        values = (str(month.commodity_price_uah_per_1000m3), str(month.distribution_price_uah_per_1000m3),
+                  str(month.capacity_price_uah_per_1000m3), str(month.total_price_uah_per_1000m3))
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """INSERT INTO gas_price_history (
+                       reporting_month, commodity_price, distribution_price, capacity_price, total_price,
+                       source_url, source_sheet, raw_sha256, imported_at_utc
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(reporting_month) DO UPDATE SET
+                       commodity_price = excluded.commodity_price, distribution_price = excluded.distribution_price,
+                       capacity_price = excluded.capacity_price, total_price = excluded.total_price,
+                       source_url = excluded.source_url, source_sheet = excluded.source_sheet,
+                       raw_sha256 = excluded.raw_sha256, imported_at_utc = excluded.imported_at_utc""",
+                (month.reporting_month.isoformat(), *values, source_url, month.source_sheet, raw_sha256, imported_at),
+            )
+        return 1
+
+    def list_gas_price_history(self) -> list[tuple]:
+        """Return price-only history, deliberately without any volume columns."""
+        self.initialize()
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                "SELECT reporting_month, commodity_price, distribution_price, capacity_price, total_price, "
+                "source_url, source_sheet, raw_sha256, imported_at_utc FROM gas_price_history ORDER BY reporting_month"
+            ).fetchall()
+        return [(date.fromisoformat(row[0]), *(Decimal(value) for value in row[1:5]), *row[5:8], _parse_utc(row[8]))
+                for row in rows]
 
     def store_gas_procurement(
         self,

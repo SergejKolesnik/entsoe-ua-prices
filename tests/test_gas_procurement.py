@@ -64,6 +64,12 @@ class GasProcurementTests(unittest.TestCase):
         self.assertEqual(month.total_price_uah_per_1000m3, Decimal("23053.83"))
         self.assertEqual(len(days), 3)
 
+    def test_parser_handles_legacy_leading_blank_date_column(self):
+        legacy = "\n".join("," + line for line in CSV.decode("utf-8").splitlines()).encode("utf-8")
+        month, days = parse_gas_procurement_csv(legacy, date(2026, 9, 1), "legacy")
+        self.assertEqual(month.total_price_uah_per_1000m3, Decimal("23053.83"))
+        self.assertEqual(days[0].planned_volume_m3, Decimal("10333"))
+
     def test_source_is_read_only_and_rejects_non_csv_login_page(self):
         response = Mock(
             status_code=200,

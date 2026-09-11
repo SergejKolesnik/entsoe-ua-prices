@@ -17,6 +17,7 @@ from market_forecast.domain import GasProcurementMonth
 from market_forecast.parsers.gas_history_csv import HEADERS, MONTHS, parse_gas_history_csv
 from market_forecast.persistence import SQLiteMarketRepository
 from market_forecast.services.gas_consumption import monthly_consumption
+from market_forecast.services.gas_price_history import historical_price_worksheets
 from market_forecast.sources.base import RawResponse
 
 URL = "https://docs.google.com/spreadsheets/d/synthetic/gviz/tq?sheet=2023"
@@ -125,6 +126,29 @@ class GasHistoryTests(unittest.TestCase):
         self.assertEqual(len(series), 10)
         self.assertTrue(pd.isna(series.iloc[1]["commodity_price"]))
         self.assertEqual(series.iloc[-1]["commodity_price"], 110.0)
+
+    def test_history_prices_use_the_same_explicit_vat_exclusive_basis(self):
+        import streamlit_app as app
+
+        rows = parse_gas_history_csv(encode(fixture()), 2023)
+        projected = app._vat_exclusive_history_prices([
+            (row.reporting_month, row.commodity_price_excluding_vat, row.commodity_price,
+             row.transportation_price, row.distribution_price, row.total_price,
+             row.plant_volume_m3, row.sanatorium_volume_m3, row.total_volume_m3,
+             row.amount_uah, True, URL, "2023", "a" * 64, NOW)
+            for row in rows
+        ])
+        self.assertEqual(projected.iloc[0]["commodity_price"], 100)
+        self.assertAlmostEqual(projected.iloc[0]["total_price"], 140 / 1.2)
+        self.assertAlmostEqual(projected.iloc[0]["distribution_price"], 15 / 1.2)
+
+    def test_hidden_price_registry_preserves_legacy_source_names(self):
+        sheets = historical_price_worksheets(date(2022, 1, 1), date(2024, 12, 1))
+        self.assertEqual(len(sheets), 17)
+        self.assertEqual(sheets[0].reporting_month, date(2022, 2, 1))
+        self.assertTrue(sheets[1].sheet_name.endswith(" "))
+        with self.assertRaisesRegex(ValueError, "first-of-month"):
+            historical_price_worksheets(date(2022, 2, 2), date(2024, 12, 1))
 
     def test_ui_renders_verified_net_price_series_with_procurement_data(self):
         from streamlit.testing.v1 import AppTest
