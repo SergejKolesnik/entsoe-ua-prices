@@ -417,8 +417,18 @@ def _format_integer(value: float) -> str:
     return f"{value:,.0f}".replace(",", " ")
 
 
-def _draw_gas_prices(monthly: pd.DataFrame) -> None:
-    """Render existing procurement price charts independently of consumption history."""
+def _monthly_price_series(frame: pd.DataFrame, value_column: str) -> pd.DataFrame:
+    """Insert explicit missing months so a line never implies absent observations."""
+
+    if frame.empty:
+        return frame
+    result = frame[["reporting_month", value_column]].drop_duplicates("reporting_month").set_index("reporting_month")
+    result = result.reindex(pd.date_range(result.index.min(), result.index.max(), freq="MS"))
+    return result.rename_axis("reporting_month").reset_index()
+
+
+def _draw_gas_prices(monthly: pd.DataFrame, history: list[tuple]) -> None:
+    """Render compatible VAT-exclusive commodity prices without inventing missing components."""
 
     latest = monthly.iloc[-1]
     surcharge = max(float(latest["total_price"] - latest["commodity_price"]), 0.0)
@@ -442,19 +452,43 @@ def _draw_gas_prices(monthly: pd.DataFrame) -> None:
     )
 
     price_figure = go.Figure()
+    procurement_commodity = _monthly_price_series(monthly, "commodity_price")
     price_figure.add_trace(go.Scatter(
-        x=monthly["reporting_month"], y=monthly["commodity_price"],
+        x=procurement_commodity["reporting_month"], y=procurement_commodity["commodity_price"],
         mode="lines+markers", name="Товарний газ", line=dict(color=AMBER, width=3),
         connectgaps=False,
     ))
+    if history:
+        history_prices = pd.DataFrame(history, columns=[
+            "reporting_month", "commodity_price_excluding_vat", "commodity_price", "transportation_price",
+            "distribution_price", "total_price", "plant_volume_m3", "sanatorium_volume_m3",
+            "total_volume_m3", "amount_uah", "vat_included", "source_url", "source_sheet",
+            "raw_sha256", "imported_at_utc",
+        ])
+        history_prices["reporting_month"] = pd.to_datetime(history_prices["reporting_month"])
+        history_prices["commodity_price_excluding_vat"] = pd.to_numeric(
+            history_prices["commodity_price_excluding_vat"], errors="coerce"
+        )
+        history_prices = _monthly_price_series(history_prices, "commodity_price_excluding_vat")
+        price_figure.add_trace(go.Scatter(
+            x=history_prices["reporting_month"], y=history_prices["commodity_price_excluding_vat"],
+            mode="lines+markers", name="Товарний газ · 2023", line=dict(color="#f6c344", width=3, dash="dot"),
+            connectgaps=False,
+        ))
+    total_prices = _monthly_price_series(monthly, "total_price")
     price_figure.add_trace(go.Scatter(
-        x=monthly["reporting_month"], y=monthly["total_price"],
+        x=total_prices["reporting_month"], y=total_prices["total_price"],
         mode="lines+markers", name="Повна ціна", line=dict(color=BLUE, width=2),
         connectgaps=False,
     ))
     price_figure.update_layout(**_chart_layout(390, "грн/1 000 м³ без ПДВ"))
     st.markdown("#### Динаміка закупівельної ціни")
     st.plotly_chart(price_figure, width="stretch")
+    if history:
+        st.caption(
+            "2023: товарний газ без ПДВ взято з окремого підтвердженого стовпця річного джерела. "
+            "Повна ціна та її складники за 2023 збережені лише з ПДВ, тому в цей графік не додаються."
+        )
 
     composition_figure = go.Figure()
     for column, label, color in (
@@ -517,7 +551,7 @@ def _draw_gas_market(database_path: Path | str) -> None:
     if monthly.empty:
         st.info("Дані газового ринку ще не імпортовані.")
     else:
-        _draw_gas_prices(monthly)
+        _draw_gas_prices(monthly, _load_gas_history(str(database_path)))
 
     history = _load_gas_history(str(database_path))
     history_frame = _load_gas_monthly_consumption(str(database_path))
@@ -573,7 +607,7 @@ def _draw_gas_market(database_path: Path | str) -> None:
         historical = next((r for r in history if r[0] == selected_reporting_month), None)
         if historical:
             columns = st.columns(3)
-            for column, label, value in zip(columns, ("Завод", "Профілакторій", "Разом"), historical[5:8]):
+            for column, label, value in zip(columns, ("Завод", "Профілакторій", "Разом"), historical[6:9]):
                 column.metric(label, f"{float(value):,.2f} м³".replace(",", " "))
             st.info("Підтверджений місячний факт. Добової деталізації та плану в річному джерелі немає.")
         else:

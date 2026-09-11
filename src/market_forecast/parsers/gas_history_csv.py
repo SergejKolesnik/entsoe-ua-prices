@@ -10,7 +10,8 @@ from market_forecast.domain.gas_history import GasHistoryMonth
 
 MONTHS = "январь февраль март апрель май июнь июль август сентябрь октябрь ноябрь декабрь".split()
 HEADERS = (
-    "Месяц", "цена за 1000 м3 природного газа с НДС, грн.",
+    "Месяц", "цена за 1000 м3 природного газа без НДС, грн.",
+    "цена за 1000 м3 природного газа с НДС, грн.",
     "тариф за 1000 м3 за транспортировку с НДС, грн.",
     "тариф за 1000 м3 за распределение с НДС, грн.",
     "Цена всего за 1000 м3 (природный газ, транспортировка, распределение) с НДС, грн.",
@@ -43,27 +44,27 @@ def parse_gas_history_csv(content: bytes, year: int) -> list[GasHistoryMonth]:
         raise ValueError("Expected one annual gas header")
     index, offset = headers[0]
     normalize = lambda value: " ".join(value.split())
-    if tuple(map(normalize, rows[index][offset:offset + 9])) != HEADERS:
+    if tuple(map(normalize, rows[index][offset:offset + 10])) != HEADERS:
         raise ValueError("Unsupported annual gas units, VAT or header order")
     body = [r for r in rows[index + 1:] if any(v.strip() for v in r)]
     if len(body) != 13:
         raise ValueError("Annual gas history requires twelve months and annual totals")
     result = []
     for month, row in enumerate(body[:12], 1):
-        values = row[offset:offset + 9]
-        if len(values) != 9 or values[0].strip().lower() != MONTHS[month - 1]:
+        values = row[offset:offset + 10]
+        if len(values) != 10 or values[0].strip().lower() != MONTHS[month - 1]:
             raise ValueError("Missing, duplicate or unordered gas history month")
         numbers = list(map(_number, values[1:]))
-        result.append(GasHistoryMonth(date(year, month, 1), *numbers[:4],
-                                      *(v * 1000 for v in numbers[4:7]), numbers[7]))
-    totals = body[-1][offset:offset + 9]
-    if len(totals) != 9 or totals[0].strip() != "ГОД":
+        result.append(GasHistoryMonth(date(year, month, 1), *numbers[:5],
+                                      *(v * 1000 for v in numbers[5:8]), numbers[8]))
+    totals = body[-1][offset:offset + 10]
+    if len(totals) != 10 or totals[0].strip() != "ГОД":
         raise ValueError("Annual gas totals row missing")
     for column, attr, scale, tolerance in (
-        (5, "plant_volume_m3", 1000, Decimal("0.00001")),
-        (6, "sanatorium_volume_m3", 1000, Decimal("0.00001")),
-        (7, "total_volume_m3", 1000, Decimal("0.00001")),
-        (8, "amount_uah", 1, Decimal("0.06")),
+        (6, "plant_volume_m3", 1000, Decimal("0.00001")),
+        (7, "sanatorium_volume_m3", 1000, Decimal("0.00001")),
+        (8, "total_volume_m3", 1000, Decimal("0.00001")),
+        (9, "amount_uah", 1, Decimal("0.06")),
     ):
         # CSV may expose monthly amounts rounded to cents: at most 12 half-cents.
         if abs(sum(getattr(r, attr) for r in result) - _number(totals[column]) * scale) > tolerance:
