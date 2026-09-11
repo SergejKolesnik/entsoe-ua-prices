@@ -70,6 +70,7 @@ UKRAINIAN_MONTHS = {
     5: "Травень", 6: "Червень", 7: "Липень", 8: "Серпень",
     9: "Вересень", 10: "Жовтень", 11: "Листопад", 12: "Грудень",
 }
+GAS_HISTORY_CACHE_VERSION = 2
 
 
 def _repository(database_path: Path | str) -> SQLiteMarketRepository:
@@ -397,17 +398,20 @@ def _chart_layout(height: int, y_title: str) -> dict:
 
 
 @st.cache_data(ttl=300)
-def _load_gas_history(database_path: str) -> list[tuple]:
-    """Read verified annual-sheet monthly facts without querying Google Sheets."""
+def _load_gas_history(database_path: str, schema_version: int) -> list[tuple]:
+    """Read a versioned annual-history row shape without querying Google Sheets."""
+
+    if schema_version != GAS_HISTORY_CACHE_VERSION:
+        raise ValueError("Unsupported gas history cache schema")
     return _repository(database_path).list_gas_history()
 
 
 @st.cache_data(ttl=300)
-def _load_gas_monthly_consumption(database_path: str) -> pd.DataFrame:
+def _load_gas_monthly_consumption(database_path: str, schema_version: int) -> pd.DataFrame:
     """Combine monthly history and daily coverage for the consumption overview."""
     from market_forecast.services.gas_consumption import monthly_consumption
     return pd.DataFrame(monthly_consumption(
-        _load_gas_history(database_path), _repository(database_path).list_gas_consumption_days()
+        _load_gas_history(database_path, schema_version), _repository(database_path).list_gas_consumption_days()
     ))
 
 
@@ -551,10 +555,10 @@ def _draw_gas_market(database_path: Path | str) -> None:
     if monthly.empty:
         st.info("Дані газового ринку ще не імпортовані.")
     else:
-        _draw_gas_prices(monthly, _load_gas_history(str(database_path)))
+        _draw_gas_prices(monthly, _load_gas_history(str(database_path), GAS_HISTORY_CACHE_VERSION))
 
-    history = _load_gas_history(str(database_path))
-    history_frame = _load_gas_monthly_consumption(str(database_path))
+    history = _load_gas_history(str(database_path), GAS_HISTORY_CACHE_VERSION)
+    history_frame = _load_gas_monthly_consumption(str(database_path), GAS_HISTORY_CACHE_VERSION)
     if not history_frame.empty:
         st.markdown("#### Споживання газу за місяцями")
         history_figure = go.Figure()
