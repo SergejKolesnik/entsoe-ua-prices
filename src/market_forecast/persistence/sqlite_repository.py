@@ -663,7 +663,7 @@ class SQLiteMarketRepository:
                            WHERE source = ? AND delivery_start_utc = ?""",
                         (result.source, _utc_iso(result.delivery_start_utc, "delivery_start_utc")),
                     ).fetchone()
-                    if existing is None or tuple(existing) != values:
+                    if existing is None or not _intraday_result_equal(existing, values):
                         raise ValueError("Conflicting intraday market result already exists for the same interval")
         return artifact_id, inserted
 
@@ -1416,3 +1416,16 @@ def _forecast_point_rows_equal(
         if existing[4] != current[4] or existing[5] != current[5]:
             return False
     return True
+
+
+def _intraday_result_equal(
+    existing: tuple[object, ...], expected: tuple[object, ...]
+) -> bool:
+    """Compare VDR values by instant and decimal value across SQL backends."""
+
+    if not _utc_text_equal(existing[0], expected[0]) or existing[1] != expected[1]:
+        return False
+    return all(
+        _decimal_text_equal(existing[index], expected[index])
+        for index in range(2, len(expected))
+    )

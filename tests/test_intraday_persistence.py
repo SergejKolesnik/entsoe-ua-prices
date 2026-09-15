@@ -1,3 +1,4 @@
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -56,3 +57,29 @@ class IntradayPersistenceTests(unittest.TestCase):
             repository.store_intraday_collection(results=[make_result()], **common)
             with self.assertRaisesRegex(ValueError, "Conflicting intraday"):
                 repository.store_intraday_collection(results=[make_result("1600")], **common)
+
+    def test_retry_accepts_equivalent_postgres_timestamp_spelling(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = SQLiteMarketRepository(root / "market.sqlite3")
+            artifact = RawArtifactStore(root / "raw").save(
+                b"official vdr csv", "operator_intraday", make_result().delivery_start_utc.date(), "csv"
+            )
+            arguments = dict(
+                artifact=artifact, source_url="https://example.test/idm.csv", content_type="text/csv",
+                fetched_at_utc=datetime(2026, 8, 19, tzinfo=timezone.utc), results=[make_result()],
+            )
+            repository.store_intraday_collection(**arguments)
+            connection = sqlite3.connect(root / "market.sqlite3")
+            try:
+                connection.execute(
+                    "UPDATE intraday_market_results SET delivery_end_utc = ?",
+                    ("2026-08-18T01:00:00+00:00",),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            _, inserted = repository.store_intraday_collection(**arguments)
+
+            self.assertEqual(inserted, 0)
