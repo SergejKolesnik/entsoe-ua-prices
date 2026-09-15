@@ -51,6 +51,13 @@ class _ConnectionAdapter:
         cursor = self._connection.execute(postgres_query, tuple(parameters or ()))
         return _CursorAdapter(cursor)
 
+    def executemany(self, query: str, parameters: Iterable[Iterable[Any]]) -> _CursorAdapter:
+        """Execute one parameterized statement for a batch without round trips per row."""
+
+        cursor = self._connection.cursor()
+        cursor.executemany(query.replace("?", "%s"), [tuple(item) for item in parameters])
+        return _CursorAdapter(cursor)
+
 
 class PostgresMarketRepository(SQLiteMarketRepository):
     """Persist market data in PostgreSQL while preserving the SQLite contract."""

@@ -297,6 +297,9 @@ write to the database unless `--write` is supplied:
 ```powershell
 python -m market_forecast.cli import-gas-price-history `
   --from 2022-02-01 --to 2024-12-01
+
+# Цінові точки з комбінованого аркуша без створення фактів споживання
+python -m market_forecast.cli import-gas-price-snapshot --from 2022-01-01 --to 2022-11-01 --sheet "2022,2023,2024" --write
 ```
 
 The current transport uses Google's evaluated CSV view and therefore requires

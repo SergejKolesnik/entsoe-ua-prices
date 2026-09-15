@@ -341,7 +341,15 @@ def _load_intraday_results(database_path: str, date_from: date, date_to: date) -
     return frame.dropna(subset=columns[3:])
 
 
-def _draw_intraday_market(database_path: Path | str, dam_frame: pd.DataFrame, date_from: date, date_to: date) -> None:
+def _nearest_intraday_date(available_dates: list[date], requested_date: date) -> date:
+    """Return the available VDR date nearest to the dashboard review date."""
+
+    if not available_dates:
+        raise ValueError("At least one VDR delivery date is required")
+    return min(available_dates, key=lambda item: (abs(item - requested_date), item > requested_date))
+
+
+def _draw_intraday_market(database_path: Path | str, dam_frame: pd.DataFrame, date_from: date, date_to: date, selected_date: date) -> None:
     """Show VDR liquidity and price discovery alongside matching DAM delivery hours."""
 
     st.markdown("### Внутрішньодобовий ринок (ВДР)")
@@ -380,8 +388,14 @@ def _draw_intraday_market(database_path: Path | str, dam_frame: pd.DataFrame, da
         st.warning("Немає спільних погодинних інтервалів ВДР і РДН для порівняння.")
         return
     matched["spread"] = matched["weighted_price"] - matched["price"]
-    selected = matched[matched["delivery_date"] == matched["delivery_date"].max()]
-    st.markdown(f"#### Погодинна картина — {selected['delivery_date'].iloc[0].strftime('%d.%m.%Y')}")
+    hourly_date = _nearest_intraday_date(sorted(matched["delivery_date"].unique()), selected_date)
+    selected = matched[matched["delivery_date"] == hourly_date]
+    st.markdown(f"#### Погодинна картина — {hourly_date.strftime('%d.%m.%Y')}")
+    if hourly_date != selected_date:
+        st.caption(
+            f"За вибрану дату {selected_date.strftime('%d.%m.%Y')} ВДР ще не збережено; "
+            f"показано найближчу доступну дату {hourly_date.strftime('%d.%m.%Y')}."
+        )
     hourly = go.Figure()
     hourly.add_trace(go.Scatter(x=selected["settlement_period"], y=selected["weighted_price"], name="ВДР", mode="lines+markers", line=dict(color=BLUE, width=3)))
     hourly.add_trace(go.Scatter(x=selected["settlement_period"], y=selected["price"], name="РДН", mode="lines+markers", line=dict(color=AMBER, width=2)))
@@ -2314,7 +2328,7 @@ def main() -> None:
             settings.database_path, frame, date_from, date_to, selected_date
         )
     with intraday_market:
-        _draw_intraday_market(settings.database_path, frame, date_from, date_to)
+        _draw_intraday_market(settings.database_path, frame, date_from, date_to, selected_date)
     with gas_market:
         _draw_gas_market(settings.database_path)
     with forecast:

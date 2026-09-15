@@ -14,7 +14,9 @@ from unittest.mock import patch
 
 from market_forecast.cli import main
 from market_forecast.domain import GasProcurementMonth
-from market_forecast.parsers.gas_history_csv import HEADERS, MONTHS, parse_gas_history_csv
+from market_forecast.parsers.gas_history_csv import (
+    HEADERS, MONTHS, PRICE_SNAPSHOT_HEADERS, parse_gas_history_csv, parse_gas_price_snapshot_csv,
+)
 from market_forecast.persistence import SQLiteMarketRepository
 from market_forecast.services.gas_consumption import monthly_consumption
 from market_forecast.services.gas_price_history import historical_price_worksheets
@@ -39,7 +41,46 @@ def encode(rows):
     return stream.getvalue().encode()
 
 
+def price_snapshot_fixture():
+    title = 'ПРИРОДНЫЙ ГАЗ  (Поставщик ООО "TEST") Месяц'
+    rows = [["", title, *PRICE_SNAPSHOT_HEADERS[1:]]]
+    rows.extend([
+        ["", "январь 2022", "37 500,00", "136,58", "1 260,00", "38 896,58", "123,83456", "21,87344", "145,70800", "6 801 051,45"],
+        ["", "август 2022", "30 000,00", "136,58", "1 260,00", "31 396,58", "1 250,44516", "0,06507", "1 250,51023", "47 114 093,37"],
+    ])
+    return rows
+
+
 class GasHistoryTests(unittest.TestCase):
+    def test_combined_snapshot_returns_price_only_months_on_net_basis(self):
+        months = parse_gas_price_snapshot_csv(encode(price_snapshot_fixture()), "2022,2023,2024")
+        self.assertEqual([item.reporting_month for item in months], [date(2022, 1, 1), date(2022, 8, 1)])
+        self.assertEqual(months[0].commodity_price_uah_per_1000m3, Decimal("37500"))
+        self.assertEqual(months[0].capacity_price_uah_per_1000m3, Decimal("136.58"))
+        self.assertEqual(months[0].distribution_price_uah_per_1000m3, Decimal("1260"))
+        self.assertEqual(months[0].total_price_uah_per_1000m3, Decimal("38896.58"))
+        self.assertEqual(months[0].planned_volume_m3, Decimal(0))
+        self.assertFalse(months[0].vat_included)
+
+    def test_combined_snapshot_rejects_nonreconciling_price_or_volume(self):
+        for row, column, value in ((1, 5, "38 896,57"), (1, 8, "145,70801")):
+            rows = price_snapshot_fixture()
+            rows[row][column] = value
+            with self.assertRaisesRegex(ValueError, "does not reconcile"):
+                parse_gas_price_snapshot_csv(encode(rows), "2022,2023,2024")
+
+    def test_combined_snapshot_dry_run_never_opens_repository(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict('os.environ', {
+            'GAS_SPREADSHEET_ID': 'synthetic', 'RAW_DATA_DIRECTORY': temp,
+        }), patch('market_forecast.sources.GoogleSheetsGasSource.fetch_worksheet',
+                  return_value=RawResponse(encode(price_snapshot_fixture()), 'text/csv', 200, URL)), \
+                patch('market_forecast.persistence.create_market_repository') as create:
+            self.assertEqual(main([
+                'import-gas-price-snapshot', '--from', '2022-01-01', '--to', '2022-08-01',
+                '--sheet', '2022,2023,2024',
+            ]), 0)
+            create.assert_not_called()
+
     def test_native_vat_and_small_volumes_preserved(self):
         rows = parse_gas_history_csv(encode(fixture()), 2023)
         self.assertEqual(len(rows), 12)
