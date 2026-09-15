@@ -20,6 +20,18 @@ def csv_for(day: str, count: int = 24) -> bytes:
     return ("\ufeff" + "\n".join(rows)).encode("utf-8")
 
 
+def quarter_prefix_csv(year: int, quarter: int, days: int, skip_day: int | None = None) -> bytes:
+    start = date(year, (quarter - 1) * 3 + 1, 1)
+    documents = [HEADER]
+    for offset in range(days):
+        if offset == skip_day:
+            continue
+        delivery_day = start.fromordinal(start.toordinal() + offset).strftime("%d.%m.%Y")
+        for hour in range(1, 25):
+            documents.append(f"{delivery_day};{hour};1500,25;1000;2000;1600;10,5;10,5;20;21")
+    return ("\ufeff" + "\n".join(documents)).encode("utf-8")
+
+
 class OperatorIntradayCsvTests(unittest.TestCase):
     def test_parses_complete_official_day(self) -> None:
         results = parse_operator_intraday_csv(csv_for("18.08.2026"))
@@ -49,6 +61,16 @@ class OperatorIntradayCsvTests(unittest.TestCase):
         document = csv_for("18.08.2026").replace(b"\xd0\x94\xd0\xb0\xd1\x82\xd0\xb0", b"Date", 1)
         with self.assertRaisesRegex(ValueError, "headers"):
             parse_operator_intraday_csv(document)
+
+    def test_accepts_only_contiguous_partial_quarter_when_explicit(self) -> None:
+        results = parse_operator_intraday_csv(quarter_prefix_csv(2026, 3, 2), 2026, 3, True)
+        self.assertEqual(len(results), 48)
+        with self.assertRaisesRegex(ValueError, "does not completely cover"):
+            parse_operator_intraday_csv(quarter_prefix_csv(2026, 3, 2), 2026, 3)
+
+    def test_rejects_partial_quarter_with_an_interior_gap(self) -> None:
+        with self.assertRaisesRegex(ValueError, "contiguous prefix"):
+            parse_operator_intraday_csv(quarter_prefix_csv(2026, 3, 3, skip_day=1), 2026, 3, True)
 
     def test_rejects_quarter_with_missing_delivery_dates(self) -> None:
         with self.assertRaisesRegex(ValueError, "does not completely cover"):

@@ -594,7 +594,7 @@ class SQLiteMarketRepository:
         fetched_at_utc: datetime,
         results: Iterable[IntradayMarketResult],
     ) -> tuple[int, int]:
-        """Store one validated VDR quarter without collapsing its price range or liquidity."""
+        """Store validated VDR rows in batches while retaining conflict checks."""
 
         rows = list(results)
         if not rows:
@@ -609,10 +609,8 @@ class SQLiteMarketRepository:
                        local_path, byte_count, fetched_at_utc, validation_status
                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'validated')
                    ON CONFLICT(source, delivery_date, sha256) DO NOTHING""",
-                (
-                    artifact.sha256, "operator_intraday", delivery_date.isoformat(),
-                    source_url, content_type, str(artifact.path), artifact.byte_count, fetched_at,
-                ),
+                (artifact.sha256, "operator_intraday", delivery_date.isoformat(),
+                 source_url, content_type, str(artifact.path), artifact.byte_count, fetched_at),
             )
             artifact_row = connection.execute(
                 """SELECT id FROM raw_artifacts
@@ -622,50 +620,48 @@ class SQLiteMarketRepository:
             if artifact_row is None:
                 raise RuntimeError("Intraday raw artifact could not be persisted")
             artifact_id = int(artifact_row[0])
-            inserted = 0
-            for result in rows:
-                values = (
-                    _utc_iso(result.delivery_end_utc, "delivery_end_utc"),
-                    result.settlement_period,
-                    str(result.weighted_price_uah_per_mwh),
-                    str(result.minimum_price_uah_per_mwh),
-                    str(result.maximum_price_uah_per_mwh),
-                    str(result.last_price_uah_per_mwh),
-                    str(result.sale_volume_mwh),
-                    str(result.purchase_volume_mwh),
-                    str(result.declared_sale_volume_mwh),
-                    str(result.declared_purchase_volume_mwh),
-                )
-                cursor = connection.execute(
-                    """INSERT INTO intraday_market_results (
-                           delivery_start_utc, delivery_end_utc, settlement_period,
-                           weighted_price_uah_per_mwh, minimum_price_uah_per_mwh,
-                           maximum_price_uah_per_mwh, last_price_uah_per_mwh,
-                           sale_volume_mwh, purchase_volume_mwh,
-                           declared_sale_volume_mwh, declared_purchase_volume_mwh,
-                           source, raw_artifact_id, ingested_at_utc
-                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                       ON CONFLICT(source, delivery_start_utc) DO NOTHING""",
-                    (
-                        _utc_iso(result.delivery_start_utc, "delivery_start_utc"), *values,
-                        result.source, artifact_id, fetched_at,
-                    ),
-                )
-                inserted += cursor.rowcount
-                if cursor.rowcount == 0:
-                    existing = connection.execute(
-                        """SELECT delivery_end_utc, settlement_period,
-                                  weighted_price_uah_per_mwh, minimum_price_uah_per_mwh,
-                                  maximum_price_uah_per_mwh, last_price_uah_per_mwh,
-                                  sale_volume_mwh, purchase_volume_mwh,
-                                  declared_sale_volume_mwh, declared_purchase_volume_mwh
-                           FROM intraday_market_results
-                           WHERE source = ? AND delivery_start_utc = ?""",
-                        (result.source, _utc_iso(result.delivery_start_utc, "delivery_start_utc")),
-                    ).fetchone()
-                    if existing is None or not _intraday_result_equal(existing, values):
-                        raise ValueError("Conflicting intraday market result already exists for the same interval")
-        return artifact_id, inserted
+            entries = [
+                (_utc_iso(result.delivery_start_utc, "delivery_start_utc"),
+                 _utc_iso(result.delivery_end_utc, "delivery_end_utc"), result.settlement_period,
+                 str(result.weighted_price_uah_per_mwh), str(result.minimum_price_uah_per_mwh),
+                 str(result.maximum_price_uah_per_mwh), str(result.last_price_uah_per_mwh),
+                 str(result.sale_volume_mwh), str(result.purchase_volume_mwh),
+                 str(result.declared_sale_volume_mwh), str(result.declared_purchase_volume_mwh),
+                 result.source, artifact_id, fetched_at)
+                for result in rows
+            ]
+            existing: dict[str, tuple[object, ...]] = {}
+            for start in range(0, len(entries), 500):
+                batch = entries[start:start + 500]
+                placeholders = ", ".join("?" for _ in batch)
+                found = connection.execute(
+                    """SELECT delivery_start_utc, delivery_end_utc, settlement_period,
+                              weighted_price_uah_per_mwh, minimum_price_uah_per_mwh,
+                              maximum_price_uah_per_mwh, last_price_uah_per_mwh,
+                              sale_volume_mwh, purchase_volume_mwh,
+                              declared_sale_volume_mwh, declared_purchase_volume_mwh
+                       FROM intraday_market_results
+                       WHERE source = ? AND delivery_start_utc IN (""" + placeholders + ")",
+                    (batch[0][11], *(item[0] for item in batch)),
+                ).fetchall()
+                existing.update({str(item[0]): item[1:] for item in found})
+            for entry in entries:
+                current = existing.get(entry[0])
+                if current is not None and not _intraday_result_equal(current, entry[1:11]):
+                    raise ValueError("Conflicting intraday market result already exists for the same interval")
+            connection.executemany(
+                """INSERT INTO intraday_market_results (
+                       delivery_start_utc, delivery_end_utc, settlement_period,
+                       weighted_price_uah_per_mwh, minimum_price_uah_per_mwh,
+                       maximum_price_uah_per_mwh, last_price_uah_per_mwh,
+                       sale_volume_mwh, purchase_volume_mwh,
+                       declared_sale_volume_mwh, declared_purchase_volume_mwh,
+                       source, raw_artifact_id, ingested_at_utc
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(source, delivery_start_utc) DO NOTHING""",
+                entries,
+            )
+        return artifact_id, len(entries) - len(existing)
 
     def list_intraday_results(
         self, date_from: date, date_to: date, source: str = "operator_intraday"

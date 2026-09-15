@@ -120,6 +120,14 @@ def build_parser() -> argparse.ArgumentParser:
     price_history.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
     price_history.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
     price_history.add_argument("--write", action="store_true")
+    combined_price_history = subparsers.add_parser(
+        "import-gas-price-snapshot",
+        help="Validate the audited combined price sheet; write only price points with --write.",
+    )
+    combined_price_history.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
+    combined_price_history.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
+    combined_price_history.add_argument("--sheet", required=True, dest="sheet_name")
+    combined_price_history.add_argument("--write", action="store_true")
     intraday = subparsers.add_parser(
         "import-idm-quarter",
         help="Validate one official VDR quarter; write only with --write.",
@@ -127,6 +135,10 @@ def build_parser() -> argparse.ArgumentParser:
     intraday.add_argument("--year", required=True, type=int)
     intraday.add_argument("--quarter", required=True, type=int, choices=(1, 2, 3, 4))
     intraday.add_argument("--write", action="store_true")
+    intraday.add_argument(
+        "--allow-partial-quarter", action="store_true",
+        help="Accept only a contiguous prefix of a still-published official quarter.",
+    )
     return parser
 
 
@@ -158,6 +170,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "import-idm-quarter":
         from datetime import datetime, timezone
         from zoneinfo import ZoneInfo
+        if args.allow_partial_quarter:
+            quarter_start = date(args.year, (args.quarter - 1) * 3 + 1, 1)
+            quarter_end = (date(args.year + 1, 1, 1) if args.quarter == 4
+                           else date(args.year, args.quarter * 3 + 1, 1))
+            if not quarter_start <= datetime.now(ZoneInfo("Europe/Kyiv")).date() < quarter_end:
+                raise SystemExit("--allow-partial-quarter is only valid for the current Kyiv quarter")
         from market_forecast.config import Settings
         from market_forecast.parsers import parse_operator_intraday_csv
         from market_forecast.persistence import RawArtifactStore, create_market_repository
@@ -167,7 +185,9 @@ def main(argv: list[str] | None = None) -> int:
         raw = OperatorIntradaySource(
             timeout_seconds=settings.request_timeout_seconds
         ).fetch_quarter(args.year, args.quarter)
-        results = parse_operator_intraday_csv(raw.content, args.year, args.quarter)
+        results = parse_operator_intraday_csv(
+            raw.content, args.year, args.quarter, args.allow_partial_quarter
+        )
         inserted = None
         raw_sha256 = None
         if args.write:
@@ -555,6 +575,38 @@ def main(argv: list[str] | None = None) -> int:
             f"Gas procurement imported: month={args.month:%Y-%m} "
             f"months={stored_months} days={stored_days} actual_days={actual_days}"
         )
+        return 0
+    if args.command == "import-gas-price-snapshot":
+        from datetime import datetime, timezone
+        from market_forecast.config import Settings
+        from market_forecast.parsers import parse_gas_price_snapshot_csv
+        from market_forecast.persistence import create_market_repository
+        from market_forecast.persistence.raw_artifacts import RawArtifactStore
+        from market_forecast.sources import GoogleSheetsGasSource
+
+        if args.date_from.day != 1 or args.date_to.day != 1 or args.date_to < args.date_from:
+            raise SystemExit("Gas price snapshot range must use ordered first-of-month dates")
+        settings = Settings.from_environment()
+        response = GoogleSheetsGasSource(
+            settings.require_gas_spreadsheet_id(), settings.request_timeout_seconds
+        ).fetch_worksheet(args.sheet_name)
+        artifact = RawArtifactStore(settings.raw_data_directory).save(
+            response.require_content(), "gas-price-snapshot", args.date_from, "csv"
+        )
+        months = [month for month in parse_gas_price_snapshot_csv(
+            response.require_content(), args.sheet_name
+        ) if args.date_from <= month.reporting_month <= args.date_to]
+        if not months:
+            raise ValueError("Gas price snapshot has no requested reporting months")
+        written = None
+        if args.write:
+            repository = create_market_repository(settings.database_path, settings.database_url)
+            written = sum(repository.store_gas_price_history(
+                month, response.source_url, artifact.sha256, datetime.now(timezone.utc)
+            ) for month in months)
+        print(json.dumps({"mode": "write" if args.write else "dry-run", "months": len(months),
+                          "written": written, "range": [args.date_from.isoformat(), args.date_to.isoformat()],
+                          "sheet": args.sheet_name, "raw_sha256": artifact.sha256}))
         return 0
     if args.command == "import-gas-price-history":
         from datetime import datetime, timezone

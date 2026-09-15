@@ -22,6 +22,7 @@ EXPECTED_HEADERS = (
 
 def parse_operator_intraday_csv(
     content: bytes, expected_year: int | None = None, expected_quarter: int | None = None,
+    allow_partial_quarter: bool = False,
 ) -> list[IntradayMarketResult]:
     """Parse an official quarterly VDR CSV without filling missing delivery hours."""
 
@@ -85,12 +86,12 @@ def parse_operator_intraday_csv(
             )
         records.extend(daily_rows)
     if expected_year is not None and expected_quarter is not None:
-        _validate_quarter_dates(by_date, expected_year, expected_quarter)
+        _validate_quarter_dates(by_date, expected_year, expected_quarter, allow_partial_quarter)
     return records
 
 
 def _validate_quarter_dates(
-    by_date: dict[date, list[IntradayMarketResult]], year: int, quarter: int
+    by_date: dict[date, list[IntradayMarketResult]], year: int, quarter: int, allow_partial: bool
 ) -> None:
     quarter_start = date(year, (quarter - 1) * 3 + 1, 1)
     quarter_end = (
@@ -99,10 +100,19 @@ def _validate_quarter_dates(
     ) - timedelta(days=1)
     expected_dates = [quarter_start + timedelta(days=offset)
                       for offset in range((quarter_end - quarter_start).days + 1)]
-    if sorted(by_date) != expected_dates:
+    actual_dates = sorted(by_date)
+    if actual_dates == expected_dates:
+        return
+    if allow_partial and actual_dates:
+        contiguous_prefix = expected_dates[:len(actual_dates)]
+        if actual_dates == contiguous_prefix:
+            return
         raise ValueError(
-            f"Operator intraday CSV does not completely cover {year} quarter {quarter}"
+            f"Operator intraday CSV partial {year} quarter {quarter} must be a contiguous prefix"
         )
+    raise ValueError(
+        f"Operator intraday CSV does not completely cover {year} quarter {quarter}"
+    )
 
 
 def _expected_periods(delivery_date: date) -> int:
