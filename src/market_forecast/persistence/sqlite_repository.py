@@ -207,14 +207,17 @@ class SQLiteMarketRepository:
 
     def store_gas_history(
         self, months: Iterable[GasHistoryMonth], source_url: str, source_sheet: str,
-        raw_sha256: str, imported_at_utc: datetime,
+        raw_sha256: str, imported_at_utc: datetime, *, allow_partial: bool = False,
     ) -> int:
         """Insert a complete verified year atomically; reject conflicting history."""
         import re
         rows = list(months)
-        if len(rows) != 12 or [r.reporting_month for r in rows] != [
+        if (not rows or rows != sorted(rows, key=lambda row: row.reporting_month)
+                or len({row.reporting_month for row in rows}) != len(rows)):
+            raise ValueError("History import requires unique ordered months")
+        if not allow_partial and (len(rows) != 12 or [r.reporting_month for r in rows] != [
             date(rows[0].reporting_month.year, m, 1) for m in range(1, 13)
-        ]:
+        ]):
             raise ValueError("History import requires one complete ordered year")
         if not source_url.startswith("https://docs.google.com/spreadsheets/d/") or not source_sheet.strip():
             raise ValueError("Invalid history source")
@@ -376,6 +379,33 @@ class SQLiteMarketRepository:
                     ),
                 )
         return 1, len(rows)
+
+    def store_gas_consumption_history(
+        self, days: Iterable[GasConsumptionDay], imported_at_utc: datetime,
+    ) -> int:
+        """Upsert verified daily history without inventing a monthly price record."""
+        imported_at = _utc_iso(imported_at_utc, "imported_at_utc")
+        rows = list(days)
+        if not rows:
+            raise ValueError("Gas consumption history must not be empty")
+        self.initialize()
+        with closing(self._connect()) as connection, connection:
+            for item in rows:
+                connection.execute(
+                    """INSERT INTO gas_consumption_days (
+                           delivery_date, planned_volume_m3, actual_volume_m3,
+                           source_sheet, imported_at_utc
+                       ) VALUES (?, ?, ?, ?, ?)
+                       ON CONFLICT(delivery_date) DO UPDATE SET
+                           planned_volume_m3 = excluded.planned_volume_m3,
+                           actual_volume_m3 = excluded.actual_volume_m3,
+                           source_sheet = excluded.source_sheet,
+                           imported_at_utc = excluded.imported_at_utc""",
+                    (item.delivery_date.isoformat(), str(item.planned_volume_m3),
+                     str(item.actual_volume_m3) if item.actual_volume_m3 is not None else None,
+                     item.source_sheet, imported_at),
+                )
+        return len(rows)
 
     def list_gas_procurement_months(self) -> list[tuple]:
         """Return normalized monthly price composition in chronological order."""

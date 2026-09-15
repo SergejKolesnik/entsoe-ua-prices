@@ -9,6 +9,7 @@ import re
 from market_forecast.domain.gas_history import GasHistoryMonth
 
 MONTHS = "январь февраль март апрель май июнь июль август сентябрь октябрь ноябрь декабрь".split()
+MONTH_INDEX = {name: number for number, name in enumerate(MONTHS, 1)}
 HEADERS = (
     "Месяц", "цена за 1000 м3 природного газа без НДС, грн.",
     "цена за 1000 м3 природного газа с НДС, грн.",
@@ -69,4 +70,47 @@ def parse_gas_history_csv(content: bytes, year: int) -> list[GasHistoryMonth]:
         # CSV may expose monthly amounts rounded to cents: at most 12 half-cents.
         if abs(sum(getattr(r, attr) for r in result) - _number(totals[column]) * scale) > tolerance:
             raise ValueError(f"Annual gas total mismatch: {attr}")
+    return result
+
+
+def parse_gas_history_snapshot_csv(content: bytes) -> list[GasHistoryMonth]:
+    """Parse the verified combined 2023/2024 net-price table without filling gaps."""
+    rows = list(csv.reader(StringIO(content.decode("utf-8-sig", errors="strict")), strict=True))
+    for row in rows:
+        for column, value in enumerate(row):
+            if re.fullmatch(r"ПРИРОДНЫЙ ГАЗ\s+\(Поставщик [^\r\n]+\)\s+Месяц", value):
+                row[column] = "Месяц"
+    header_index = next((i for i, row in enumerate(rows) if "Месяц" in row), None)
+    if header_index is None:
+        raise ValueError("Combined gas history header is missing")
+    offset = rows[header_index].index("Месяц")
+    headers = tuple(" ".join(value.split()) for value in rows[header_index][offset:offset + 9])
+    expected = (
+        "Месяц", "цена за 1000 м3 природного газа без НДС, грн.",
+        "тариф за 1000 м3 за транспортировку без НДС, грн.",
+        "тариф за 1000 м3 за распределение без НДС, грн.",
+        "цена всего за 1000 м3 (природный газ, транспортировка, распределение) без НДС, грн.",
+        "объем (завод), тыс.м3", "объем (профилакторий), тыс.м3",
+        "ФАКТ объем всего (завод, профилакторий) тыс.м3", "сумма с НДС, грн.",
+    )
+    if headers != expected:
+        raise ValueError("Unsupported combined gas history units, VAT, or header order")
+    result = []
+    for row in rows[header_index + 1:]:
+        values = row[offset:offset + 9]
+        if len(values) < 9 or not values[0].strip():
+            continue
+        match = re.fullmatch(r"(январь|февраль|март|апрель|май|июнь|июль|август|сентябрь|октябрь|ноябрь|декабрь)\s+(20\d{2})", values[0].strip().lower())
+        if not match:
+            raise ValueError("Combined gas history month label is invalid")
+        commodity_net, transport_net, distribution_net, total_net, plant, sanatorium, total, amount = map(_number, values[1:])
+        commodity = commodity_net * Decimal("1.20")
+        transport = transport_net * Decimal("1.20")
+        distribution = distribution_net * Decimal("1.20")
+        total_price = total_net * Decimal("1.20")
+        result.append(GasHistoryMonth(date(int(match.group(2)), MONTH_INDEX[match.group(1)], 1), commodity_net,
+                                      commodity, transport, distribution, total_price,
+                                      plant * 1000, sanatorium * 1000, total * 1000, amount))
+    if not result or len({item.reporting_month for item in result}) != len(result):
+        raise ValueError("Combined gas history must contain unique months")
     return result
