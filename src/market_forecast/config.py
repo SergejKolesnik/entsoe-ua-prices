@@ -14,6 +14,8 @@ class Settings:
     entsoe_token: str | None
     database_url: str | None = None
     gas_spreadsheet_id: str | None = None
+    posthog_api_key: str | None = None
+    posthog_host: str = "https://eu.i.posthog.com"
     request_timeout_seconds: float = 30.0
     database_path: Path = Path("data/market_forecast.sqlite3")
     raw_data_directory: Path = Path("data/raw")
@@ -30,6 +32,8 @@ class Settings:
             entsoe_token=token,
             database_url=os.getenv("DATABASE_URL") or None,
             gas_spreadsheet_id=os.getenv("GAS_SPREADSHEET_ID") or None,
+            posthog_api_key=os.getenv("POSTHOG_API_KEY") or None,
+            posthog_host=os.getenv("POSTHOG_HOST", "https://eu.i.posthog.com").rstrip("/"),
             request_timeout_seconds=timeout,
             database_path=Path(os.getenv("DATABASE_PATH", "data/market_forecast.sqlite3")),
             raw_data_directory=Path(os.getenv("RAW_DATA_DIRECTORY", "data/raw")),

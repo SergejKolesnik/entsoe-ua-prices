@@ -253,6 +253,13 @@ section according to its own `status`. Full field semantics are documented in
 
 ## Internal gas procurement import
 
+## Anonymous usage analytics
+
+Set `POSTHOG_API_KEY` in Streamlit secrets to enable anonymous visit and session
+statistics. The integration disables autocapture and session recording, creates no
+person profiles, and does not send filters, inputs, names, or email addresses.
+`POSTHOG_HOST` optionally selects the PostHog region; its default is the EU host.
+
 The gas module starts with a read-only import boundary for the existing monthly
 Google Sheets worksheets. The source spreadsheet remains authoritative; the
 application never writes to it and Streamlit will later read normalized database

@@ -44,6 +44,12 @@ class PostgresRepositoryTests(unittest.TestCase):
 
         self.assertEqual(settings.database_url, "postgresql://example.invalid/neondb")
 
+    def test_settings_keeps_analytics_disabled_without_key(self):
+        with patch.dict("os.environ", {}, clear=True):
+            settings = Settings.from_environment()
+        self.assertIsNone(settings.posthog_api_key)
+        self.assertEqual(settings.posthog_host, "https://eu.i.posthog.com")
+
     def test_postgres_values_are_normalized_to_existing_contract(self):
         timestamp = datetime(2026, 8, 20, 12, tzinfo=timezone.utc)
 
