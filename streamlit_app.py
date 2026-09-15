@@ -118,7 +118,6 @@ def _repository(database_path: Path | str) -> SQLiteMarketRepository:
     """Return Neon storage when configured, otherwise the local SQLite database."""
 
     settings = Settings.from_environment()
-    _anonymous_analytics(settings)
     return create_market_repository(Path(database_path), settings.database_url)
 
 
