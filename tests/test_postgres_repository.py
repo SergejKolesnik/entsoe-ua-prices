@@ -14,6 +14,7 @@ from market_forecast.persistence import (
     create_market_repository,
 )
 from market_forecast.persistence.postgres_repository import _normalize_row
+import streamlit_app
 
 
 class PostgresRepositoryTests(unittest.TestCase):
@@ -49,6 +50,13 @@ class PostgresRepositoryTests(unittest.TestCase):
             settings = Settings.from_environment()
         self.assertIsNone(settings.posthog_api_key)
         self.assertEqual(settings.posthog_host, "https://eu.i.posthog.com")
+
+    def test_repository_creation_has_no_analytics_ui_side_effect(self):
+        """Cached data loaders must not require a Streamlit analytics render."""
+        with patch.object(streamlit_app, "_anonymous_analytics") as analytics:
+            streamlit_app._repository(Path("data/local.sqlite3"))
+
+        analytics.assert_not_called()
 
     def test_postgres_values_are_normalized_to_existing_contract(self):
         timestamp = datetime(2026, 8, 20, 12, tzinfo=timezone.utc)
