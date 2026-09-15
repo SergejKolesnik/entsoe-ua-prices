@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Iterable
+from zoneinfo import ZoneInfo
 
 from market_forecast.domain import (
     CrossBorderFlow, GasConsumptionDay, GasProcurementMonth,
-    HourlyMarketPrice, WeatherForecastPoint,
+    HourlyMarketPrice, IntradayMarketResult, WeatherForecastPoint,
 )
 from market_forecast.persistence.raw_artifacts import StoredArtifact
 from market_forecast.domain.gas_history import GasHistoryMonth
@@ -63,6 +64,28 @@ class SQLiteMarketRepository:
 
                 CREATE INDEX IF NOT EXISTS idx_market_prices_delivery
                 ON market_prices (delivery_start_utc, bidding_zone, market);
+
+                CREATE TABLE IF NOT EXISTS intraday_market_results (
+                    id INTEGER PRIMARY KEY,
+                    delivery_start_utc TEXT NOT NULL,
+                    delivery_end_utc TEXT NOT NULL,
+                    settlement_period INTEGER NOT NULL CHECK (settlement_period > 0),
+                    weighted_price_uah_per_mwh TEXT NOT NULL,
+                    minimum_price_uah_per_mwh TEXT NOT NULL,
+                    maximum_price_uah_per_mwh TEXT NOT NULL,
+                    last_price_uah_per_mwh TEXT NOT NULL,
+                    sale_volume_mwh TEXT NOT NULL,
+                    purchase_volume_mwh TEXT NOT NULL,
+                    declared_sale_volume_mwh TEXT NOT NULL,
+                    declared_purchase_volume_mwh TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    raw_artifact_id INTEGER NOT NULL REFERENCES raw_artifacts(id),
+                    ingested_at_utc TEXT NOT NULL,
+                    UNIQUE (source, delivery_start_utc)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_intraday_market_results_delivery
+                ON intraday_market_results (delivery_start_utc);
 
                 CREATE TABLE IF NOT EXISTS exchange_rates (
                     effective_date TEXT NOT NULL,
@@ -562,6 +585,116 @@ class SQLiteMarketRepository:
                             "Conflicting source revision already exists for the same source interval"
                         )
         return artifact_id, inserted
+
+    def store_intraday_collection(
+        self,
+        artifact: StoredArtifact,
+        source_url: str,
+        content_type: str,
+        fetched_at_utc: datetime,
+        results: Iterable[IntradayMarketResult],
+    ) -> tuple[int, int]:
+        """Store one validated VDR quarter without collapsing its price range or liquidity."""
+
+        rows = list(results)
+        if not rows:
+            raise ValueError("Intraday collection has no results")
+        fetched_at = _utc_iso(fetched_at_utc, "fetched_at_utc")
+        delivery_date = rows[0].delivery_start_utc.date()
+        self.initialize()
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """INSERT INTO raw_artifacts (
+                       sha256, source, delivery_date, source_url, content_type,
+                       local_path, byte_count, fetched_at_utc, validation_status
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'validated')
+                   ON CONFLICT(source, delivery_date, sha256) DO NOTHING""",
+                (
+                    artifact.sha256, "operator_intraday", delivery_date.isoformat(),
+                    source_url, content_type, str(artifact.path), artifact.byte_count, fetched_at,
+                ),
+            )
+            artifact_row = connection.execute(
+                """SELECT id FROM raw_artifacts
+                   WHERE source = ? AND delivery_date = ? AND sha256 = ?""",
+                ("operator_intraday", delivery_date.isoformat(), artifact.sha256),
+            ).fetchone()
+            if artifact_row is None:
+                raise RuntimeError("Intraday raw artifact could not be persisted")
+            artifact_id = int(artifact_row[0])
+            inserted = 0
+            for result in rows:
+                values = (
+                    _utc_iso(result.delivery_end_utc, "delivery_end_utc"),
+                    result.settlement_period,
+                    str(result.weighted_price_uah_per_mwh),
+                    str(result.minimum_price_uah_per_mwh),
+                    str(result.maximum_price_uah_per_mwh),
+                    str(result.last_price_uah_per_mwh),
+                    str(result.sale_volume_mwh),
+                    str(result.purchase_volume_mwh),
+                    str(result.declared_sale_volume_mwh),
+                    str(result.declared_purchase_volume_mwh),
+                )
+                cursor = connection.execute(
+                    """INSERT INTO intraday_market_results (
+                           delivery_start_utc, delivery_end_utc, settlement_period,
+                           weighted_price_uah_per_mwh, minimum_price_uah_per_mwh,
+                           maximum_price_uah_per_mwh, last_price_uah_per_mwh,
+                           sale_volume_mwh, purchase_volume_mwh,
+                           declared_sale_volume_mwh, declared_purchase_volume_mwh,
+                           source, raw_artifact_id, ingested_at_utc
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(source, delivery_start_utc) DO NOTHING""",
+                    (
+                        _utc_iso(result.delivery_start_utc, "delivery_start_utc"), *values,
+                        result.source, artifact_id, fetched_at,
+                    ),
+                )
+                inserted += cursor.rowcount
+                if cursor.rowcount == 0:
+                    existing = connection.execute(
+                        """SELECT delivery_end_utc, settlement_period,
+                                  weighted_price_uah_per_mwh, minimum_price_uah_per_mwh,
+                                  maximum_price_uah_per_mwh, last_price_uah_per_mwh,
+                                  sale_volume_mwh, purchase_volume_mwh,
+                                  declared_sale_volume_mwh, declared_purchase_volume_mwh
+                           FROM intraday_market_results
+                           WHERE source = ? AND delivery_start_utc = ?""",
+                        (result.source, _utc_iso(result.delivery_start_utc, "delivery_start_utc")),
+                    ).fetchone()
+                    if existing is None or tuple(existing) != values:
+                        raise ValueError("Conflicting intraday market result already exists for the same interval")
+        return artifact_id, inserted
+
+    def list_intraday_results(
+        self, date_from: date, date_to: date, source: str = "operator_intraday"
+    ) -> list[tuple]:
+        """Return all stored VDR rows for an inclusive Kyiv delivery-date range."""
+
+        if date_to < date_from:
+            raise ValueError("date_to must not precede date_from")
+        kyiv = ZoneInfo("Europe/Kyiv")
+        start = datetime.combine(date_from, datetime.min.time(), kyiv).astimezone(timezone.utc)
+        end = datetime.combine(date_to + timedelta(days=1), datetime.min.time(), kyiv).astimezone(timezone.utc)
+        self.initialize()
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT delivery_start_utc, delivery_end_utc, settlement_period,
+                          weighted_price_uah_per_mwh, minimum_price_uah_per_mwh,
+                          maximum_price_uah_per_mwh, last_price_uah_per_mwh,
+                          sale_volume_mwh, purchase_volume_mwh,
+                          declared_sale_volume_mwh, declared_purchase_volume_mwh
+                   FROM intraday_market_results
+                   WHERE source = ? AND delivery_start_utc >= ? AND delivery_start_utc < ?
+                   ORDER BY delivery_start_utc""",
+                (source, _utc_iso(start, "date_from"), _utc_iso(end, "date_to")),
+            ).fetchall()
+        return [
+            (_parse_utc(row[0]), _parse_utc(row[1]), int(row[2]),
+             *(Decimal(value) for value in row[3:]))
+            for row in rows
+        ]
 
     def store_exchange_rates(
         self, rates: dict[date, Decimal], fetched_at_utc: datetime

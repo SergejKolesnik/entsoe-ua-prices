@@ -319,6 +319,80 @@ def _load_prices(database_path: str, date_from: date, date_to: date) -> pd.DataF
     return frame.dropna(subset=["price"])
 
 
+@st.cache_data(ttl=60)
+def _load_intraday_results(database_path: str, date_from: date, date_to: date) -> pd.DataFrame:
+    """Load official VDR observations without mixing them into DAM price rows."""
+
+    rows = _repository(database_path).list_intraday_results(date_from, date_to)
+    columns = [
+        "delivery_start_utc", "delivery_end_utc", "settlement_period",
+        "weighted_price", "minimum_price", "maximum_price", "last_price",
+        "sale_volume_mwh", "purchase_volume_mwh", "declared_sale_volume_mwh",
+        "declared_purchase_volume_mwh",
+    ]
+    frame = pd.DataFrame(rows, columns=columns)
+    if frame.empty:
+        return frame
+    frame["delivery_start"] = pd.to_datetime(frame["delivery_start_utc"], utc=True).dt.tz_convert("Europe/Kyiv")
+    frame["delivery_date"] = frame["delivery_start"].dt.date
+    frame["hour"] = frame["delivery_start"].dt.hour
+    for column in columns[3:]:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    return frame.dropna(subset=columns[3:])
+
+
+def _draw_intraday_market(database_path: Path | str, dam_frame: pd.DataFrame, date_from: date, date_to: date) -> None:
+    """Show VDR liquidity and price discovery alongside matching DAM delivery hours."""
+
+    st.markdown("### Внутрішньодобовий ринок (ВДР)")
+    st.caption("ВДР не підміняє РДН: порівняння виконується лише для тих самих годин постачання. "
+               "Ціна ВДР — офіційна середньозважена; діапазон і заявлені обсяги збережено окремо.")
+    try:
+        idm = _load_intraday_results(str(database_path), date_from, date_to)
+    except Exception:
+        st.info("ВДР ще не підготовлено для цього сховища. Потрібні міграція 007 і перевірений імпорт кварталу.")
+        return
+    if idm.empty:
+        st.info("У вибраному періоді немає перевірених даних ВДР.")
+        return
+
+    expected = idm["delivery_date"].map(_expected_delivery_periods).sum()
+    columns = st.columns(4)
+    columns[0].metric("Днів ВДР", f"{idm['delivery_date'].nunique()}")
+    columns[1].metric("Погодинне покриття", f"{len(idm)}/{expected}")
+    columns[2].metric("Фактичний обсяг", f"{idm['sale_volume_mwh'].sum():,.0f} МВт·год".replace(",", " "))
+    columns[3].metric("Заявлений обсяг", f"{idm['declared_sale_volume_mwh'].sum():,.0f} МВт·год".replace(",", " "))
+
+    weighted_daily = (idm.assign(value=idm["weighted_price"] * idm["sale_volume_mwh"])
+                      .groupby("delivery_date", as_index=False)
+                      .agg(value=("value", "sum"), volume=("sale_volume_mwh", "sum")))
+    weighted_daily["vdr_price"] = weighted_daily["value"] / weighted_daily["volume"]
+    dam_daily = _daily_summary(dam_frame)[["delivery_date", "average"]].rename(columns={"average": "rdn_price"})
+    daily = weighted_daily.merge(dam_daily, on="delivery_date", how="left")
+    figure = go.Figure()
+    figure.add_trace(go.Scatter(x=daily["delivery_date"], y=daily["vdr_price"], name="ВДР, середньозважена", mode="lines+markers", line=dict(color=BLUE, width=3)))
+    figure.add_trace(go.Scatter(x=daily["delivery_date"], y=daily["rdn_price"], name="РДН, середня за годинами", mode="lines+markers", line=dict(color=AMBER, width=2)))
+    figure.update_layout(height=370, margin=dict(l=10, r=10, t=20, b=10), yaxis_title="грн/МВт·год", legend=dict(orientation="h", y=1.12))
+    st.plotly_chart(figure, width="stretch")
+
+    matched = idm.merge(dam_frame[["delivery_start_utc", "price"]], on="delivery_start_utc", how="inner")
+    if matched.empty:
+        st.warning("Немає спільних погодинних інтервалів ВДР і РДН для порівняння.")
+        return
+    matched["spread"] = matched["weighted_price"] - matched["price"]
+    selected = matched[matched["delivery_date"] == matched["delivery_date"].max()]
+    st.markdown(f"#### Погодинна картина — {selected['delivery_date'].iloc[0].strftime('%d.%m.%Y')}")
+    hourly = go.Figure()
+    hourly.add_trace(go.Scatter(x=selected["settlement_period"], y=selected["weighted_price"], name="ВДР", mode="lines+markers", line=dict(color=BLUE, width=3)))
+    hourly.add_trace(go.Scatter(x=selected["settlement_period"], y=selected["price"], name="РДН", mode="lines+markers", line=dict(color=AMBER, width=2)))
+    hourly.add_trace(go.Scatter(x=selected["settlement_period"], y=selected["minimum_price"], name="Мінімум ВДР", mode="lines", line=dict(color=MUTED, dash="dot")))
+    hourly.add_trace(go.Scatter(x=selected["settlement_period"], y=selected["maximum_price"], name="Максимум ВДР", mode="lines", line=dict(color=MUTED, dash="dot"), fill="tonexty", fillcolor="rgba(55,138,221,.10)"))
+    hourly.update_layout(height=410, margin=dict(l=10, r=10, t=20, b=10), xaxis_title="Розрахунковий період", yaxis_title="грн/МВт·год", legend=dict(orientation="h", y=1.15))
+    st.plotly_chart(hourly, width="stretch")
+    st.caption((f"Середній погодинний спред ВДР–РДН за спільними інтервалами: "
+                f"{matched['spread'].mean():,.0f} грн/МВт·год. Це описова різниця, не прогноз.").replace(",", " "))
+
+
 def _daily_summary(frame: pd.DataFrame) -> pd.DataFrame:
     return (
         frame.groupby("delivery_date", as_index=False)["price"]
@@ -2220,6 +2294,7 @@ def main() -> None:
         "Огляд",
         "Тенденції",
         "Фактори ціни",
+        "ВДР",
         "Ринок газу",
         "Прогноз",
         "Сусідні ринки",
@@ -2227,7 +2302,7 @@ def main() -> None:
     if show_technical:
         tab_labels.append("Технічний стан")
     tabs = st.tabs(tab_labels)
-    overview, trends, drivers, gas_market, forecast, neighbors = tabs[:6]
+    overview, trends, drivers, intraday_market, gas_market, forecast, neighbors = tabs[:7]
     with overview:
         _draw_overview(frame, selected_date)
         _draw_market_volume(settings.database_path, selected_date)
@@ -2238,6 +2313,8 @@ def main() -> None:
         _draw_price_drivers(
             settings.database_path, frame, date_from, date_to, selected_date
         )
+    with intraday_market:
+        _draw_intraday_market(settings.database_path, frame, date_from, date_to)
     with gas_market:
         _draw_gas_market(settings.database_path)
     with forecast:

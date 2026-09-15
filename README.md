@@ -4,6 +4,13 @@
 
 Independent Python foundation for collecting and validating Ukrainian day-ahead electricity-market data.
 
+The VDR (intraday-market) prototype is separate from DAM/RDN data. It fetches the
+official quarterly CSV, retains weighted/minimum/maximum/last prices and both actual
+and declared volumes, and compares only matching delivery hours with RDN. The command
+`import-idm-quarter --year 2026 --quarter 2` is dry-run by default; `--write` needs
+PostgreSQL migration 007 and is intentionally not used by the public dashboard rollout.
+See [the VDR import contract](docs/intraday-market.md).
+
 Annual gas history is supported by `import-gas-year --year 2023 --sheet 2023`
 (dry-run by default, `--write` for the selected database). It adds verified monthly
 plant/sanatorium facts to the consumption chart without fabricating daily data.
