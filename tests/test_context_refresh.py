@@ -27,6 +27,38 @@ class ContextRefreshTests(unittest.TestCase):
         self.assertEqual(message, "RuntimeError")
         self.assertNotIn("secret", message)
 
+    def test_classifies_entsoe_price_publication_failures(self):
+        cases = (
+            (
+                ValueError("ENTSO-E response is not a price publication document"),
+                "ValueError:entsoe_invalid_publication",
+            ),
+            (
+                ValueError("ENTSO-E document contains no price points"),
+                "ValueError:entsoe_no_price_points",
+            ),
+            (
+                ValueError("ENTSO-E prices do not overlap the requested delivery day"),
+                "ValueError:entsoe_no_overlap",
+            ),
+            (
+                ValueError("ENTSO-E prices do not cover the requested delivery day"),
+                "ValueError:entsoe_incomplete_day",
+            ),
+        )
+
+        for exc, expected in cases:
+            with self.subTest(expected=expected):
+                self.assertEqual(_sanitized_failure_message(exc), expected)
+
+    def test_unknown_value_error_remains_sanitized(self):
+        message = _sanitized_failure_message(
+            ValueError("private XML body and token should stay hidden")
+        )
+
+        self.assertEqual(message, "ValueError:validation_error")
+        self.assertNotIn("private", message)
+
     def test_context_dates_use_kyiv_calendar(self):
         instant = datetime(2026, 8, 19, 21, 30, tzinfo=timezone.utc)
 

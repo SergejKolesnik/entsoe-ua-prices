@@ -27,6 +27,47 @@ UKRAINE_ZONE = "10Y1001C--00003F"
 ENTSOE_HTTP_ERROR = re.compile(
     r"^ENTSO-E request failed with HTTP status (?P<status>[1-5][0-9]{2})$"
 )
+ENTSOE_VALUE_ERROR_CODES = (
+    ("ENTSO-E XML document is empty", "entsoe_empty_document"),
+    ("ENTSO-E response is not valid XML", "entsoe_invalid_xml"),
+    (
+        "ENTSO-E response is not a price publication document",
+        "entsoe_invalid_publication",
+    ),
+    ("ENTSO-E TimeSeries has no currency", "entsoe_missing_currency"),
+    ("ENTSO-E TimeSeries has no bidding zone", "entsoe_missing_bidding_zone"),
+    ("Unsupported ENTSO-E price resolution", "entsoe_unsupported_resolution"),
+    ("ENTSO-E period end must be after start", "entsoe_invalid_period"),
+    (
+        "ENTSO-E point contains invalid position or price",
+        "entsoe_invalid_point",
+    ),
+    ("ENTSO-E position must be positive", "entsoe_invalid_position"),
+    ("ENTSO-E period contains duplicate positions", "entsoe_duplicate_positions"),
+    ("ENTSO-E period is not aligned to its resolution", "entsoe_misaligned_period"),
+    ("ENTSO-E point falls outside declared period", "entsoe_point_outside_period"),
+    ("ENTSO-E document contains no price points", "entsoe_no_price_points"),
+    (
+        "ENTSO-E document contains conflicting duplicate prices",
+        "entsoe_conflicting_duplicate_prices",
+    ),
+    (
+        "ENTSO-E prices do not overlap the requested delivery day",
+        "entsoe_no_overlap",
+    ),
+    (
+        "ENTSO-E prices do not cover the requested delivery day",
+        "entsoe_incomplete_day",
+    ),
+    ("No delivery periods to validate", "delivery_periods_empty"),
+    ("Delivery periods mix different market series", "delivery_periods_mixed_series"),
+    ("Expected ", "delivery_period_count_mismatch"),
+    ("Duplicate settlement periods", "delivery_period_duplicate_settlements"),
+    ("Duplicate delivery timestamps", "delivery_period_duplicate_timestamps"),
+    ("Delivery periods use mixed interval durations", "delivery_period_mixed_durations"),
+    ("Unsupported delivery interval duration", "delivery_period_unsupported_duration"),
+    ("Delivery periods contain a gap or overlap", "delivery_period_gap_or_overlap"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +96,12 @@ def _sanitized_failure_message(exc: Exception) -> str:
     match = ENTSOE_HTTP_ERROR.fullmatch(str(exc))
     if isinstance(exc, RuntimeError) and match:
         return f"RuntimeError:http_{match.group('status')}"
+    if isinstance(exc, ValueError):
+        message = str(exc)
+        for fragment, code in ENTSOE_VALUE_ERROR_CODES:
+            if fragment in message:
+                return f"ValueError:{code}"
+        return "ValueError:validation_error"
     return type(exc).__name__
 
 
