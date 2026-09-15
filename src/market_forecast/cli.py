@@ -120,6 +120,21 @@ def build_parser() -> argparse.ArgumentParser:
     price_history.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
     price_history.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
     price_history.add_argument("--write", action="store_true")
+    consumption_history = subparsers.add_parser(
+        "import-gas-consumption-history",
+        help="Validate restored daily gas-consumption worksheets; write only with --write.",
+    )
+    consumption_history.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
+    consumption_history.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
+    consumption_history.add_argument("--write", action="store_true")
+    history_snapshot = subparsers.add_parser(
+        "import-gas-history-snapshot",
+        help="Validate the combined actual-price history sheet; write only with --write.",
+    )
+    history_snapshot.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
+    history_snapshot.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
+    history_snapshot.add_argument("--sheet", required=True, dest="sheet_name")
+    history_snapshot.add_argument("--write", action="store_true")
     return parser
 
 
@@ -555,6 +570,63 @@ def main(argv: list[str] | None = None) -> int:
                           "written": written if args.write else None,
                           "range": [args.date_from.isoformat(), args.date_to.isoformat()],
                           "sheets": [item.sheet_name for item, *_ in parsed]}))
+        return 0
+    if args.command == "import-gas-consumption-history":
+        from datetime import datetime, timezone
+        from market_forecast.config import Settings
+        from market_forecast.parsers import parse_gas_consumption_csv
+        from market_forecast.persistence import create_market_repository
+        from market_forecast.sources import GoogleSheetsGasSource
+        from market_forecast.services.gas_consumption_history import historical_consumption_worksheets
+
+        worksheets = historical_consumption_worksheets(args.date_from, args.date_to)
+        if not worksheets:
+            raise SystemExit("No audited gas consumption worksheets in the requested range")
+        settings = Settings.from_environment()
+        source = GoogleSheetsGasSource(settings.require_gas_spreadsheet_id(), settings.request_timeout_seconds)
+        parsed = []
+        for item in worksheets:
+            response = source.fetch_worksheet(item.sheet_name)
+            days = parse_gas_consumption_csv(response.require_content(), item.reporting_month, item.sheet_name)
+            parsed.extend(days)
+        written = None
+        if args.write:
+            repository = create_market_repository(settings.database_path, settings.database_url)
+            written = repository.store_gas_consumption_history(parsed, datetime.now(timezone.utc))
+        print(json.dumps({"mode": "write" if args.write else "dry-run", "months": len(worksheets),
+                          "days": len(parsed), "written": written,
+                          "actual_volume_m3": str(sum(item.actual_volume_m3 or 0 for item in parsed))}))
+        return 0
+    if args.command == "import-gas-history-snapshot":
+        from datetime import datetime, timezone
+        from market_forecast.config import Settings
+        from market_forecast.parsers import parse_gas_history_snapshot_csv
+        from market_forecast.persistence import create_market_repository
+        from market_forecast.persistence.raw_artifacts import RawArtifactStore
+        from market_forecast.sources import GoogleSheetsGasSource
+
+        if args.date_from.day != 1 or args.date_to.day != 1 or args.date_from > args.date_to:
+            raise SystemExit("--from and --to must be ordered first-of-month dates")
+        settings = Settings.from_environment()
+        response = GoogleSheetsGasSource(settings.require_gas_spreadsheet_id()).fetch_worksheet(args.sheet_name)
+        artifact = RawArtifactStore(settings.raw_data_directory).save(
+            response.require_content(), "gas-history-snapshot", args.date_from, "csv"
+        )
+        months = [item for item in parse_gas_history_snapshot_csv(response.require_content())
+                  if args.date_from <= item.reporting_month <= args.date_to]
+        if not months:
+            raise SystemExit("Combined gas history has no months in the requested range")
+        written = None
+        if args.write:
+            repository = create_market_repository(settings.database_path, settings.database_url)
+            written = repository.store_gas_history(
+                months, response.source_url, args.sheet_name, artifact.sha256, datetime.now(timezone.utc),
+                allow_partial=True,
+            )
+        print(json.dumps({"mode": "write" if args.write else "dry-run", "months": len(months),
+                          "written": written, "range": [args.date_from.isoformat(), args.date_to.isoformat()],
+                          "actual_volume_m3": str(sum(item.total_volume_m3 for item in months)),
+                          "raw_sha256": artifact.sha256}))
         return 0
     return 0
 

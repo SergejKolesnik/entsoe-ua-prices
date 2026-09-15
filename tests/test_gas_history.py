@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from market_forecast.cli import main
 from market_forecast.domain import GasProcurementMonth
-from market_forecast.parsers.gas_history_csv import HEADERS, MONTHS, parse_gas_history_csv
+from market_forecast.parsers.gas_history_csv import HEADERS, MONTHS, parse_gas_history_csv, parse_gas_history_snapshot_csv
 from market_forecast.persistence import SQLiteMarketRepository
 from market_forecast.services.gas_consumption import monthly_consumption
 from market_forecast.services.gas_price_history import historical_price_worksheets
@@ -40,6 +40,20 @@ def encode(rows):
 
 
 class GasHistoryTests(unittest.TestCase):
+    def test_combined_snapshot_uses_explicit_actual_volume(self):
+        headers = ["Месяц", "цена за 1000 м3 природного газа без НДС, грн.",
+                   "тариф за 1000 м3 за транспортировку без НДС, грн.",
+                   "тариф за 1000 м3 за распределение без НДС, грн.",
+                   "цена всего за 1000 м3 (природный газ, транспортировка, распределение) без НДС, грн.",
+                   "объем (завод), тыс.м3", "объем (профилакторий), тыс.м3",
+                   "ФАКТ объем всего (завод, профилакторий) тыс.м3", "сумма с НДС, грн."]
+        rows = [["", 'ПРИРОДНЫЙ ГАЗ  (Поставщик TEST)'], [], ["", *headers],
+                ["", "январь 2024", "100", "5", "15", "120", "1.2", "0.00055", "1.20055", "172.8792"]]
+        parsed = parse_gas_history_snapshot_csv(encode(rows))
+        self.assertEqual(parsed[0].reporting_month, date(2024, 1, 1))
+        self.assertEqual(parsed[0].total_volume_m3, Decimal("1200.55"))
+        self.assertEqual(parsed[0].commodity_price_excluding_vat, Decimal("100"))
+
     def test_native_vat_and_small_volumes_preserved(self):
         rows = parse_gas_history_csv(encode(fixture()), 2023)
         self.assertEqual(len(rows), 12)
