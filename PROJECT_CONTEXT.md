@@ -60,6 +60,7 @@ Phase 5: publication foundation. Durable ingestion, automated refresh, analytics
 - The Trends heatmap is period-specific rather than generically "typical": it compares trailing versus preceding 30-day windows or matching month-to-date spans year over year. The two level maps share a scale, a third map shows the signed difference, and observation counts keep sparse cells explicit.
 - Internal gas procurement is an additive bounded context. Google Sheets remains the read-only source of truth; normalized monthly price composition and daily planned/actual consumption use dedicated tables and never reuse electricity price contracts. Commodity gas, distribution, capacity booking, total price, VAT semantics, and missing future actuals remain explicit. The initial CSV transport is suitable only while the workbook is readable by the runtime; private service-account access and public-display aggregation require separate approval.
 - The production Neon schema has the additive gas tables from migration 003. A validated initial import contains 29 monthly observations from February 2022 through September 2026 and 881 daily rows (857 actual, 24 future/missing). Historical hidden price sheets are readable through the same Google export when their exact names are registered; price-only import must stay dry-run first and must not rewrite daily consumption.
+- The VDR prototype is a separate bounded context: quarterly official CSV artifacts are parsed into their full hourly price-range and liquidity fields, with a strict 23/24/25-period Kyiv-day contract. It is never merged into DAM prices. Migration 007 and an explicitly approved write/import are required before the public VDR tab can show data.
 
 ## Security note
 
@@ -90,3 +91,4 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
 7. Validate the Neon adapter against migrated data, then deploy a read-only Streamlit staging application.
 8. After review, enable the `Publish Hermes report JSON` workflow and verify the first `hermes-report` branch publication before configuring Hermes.
 9. Validate the gas importer across the historical worksheet naming variants, decide the confidential/public aggregation boundary, then add UEEX market prices and a private authentication path before any gas dashboard publication.
+10. Review a dry-run VDR quarter, apply migration 007 in a staging database, then import a bounded history only after approval; compare VDR–RDN only on matching delivery hours.

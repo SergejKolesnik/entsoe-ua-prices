@@ -120,6 +120,13 @@ def build_parser() -> argparse.ArgumentParser:
     price_history.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
     price_history.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
     price_history.add_argument("--write", action="store_true")
+    intraday = subparsers.add_parser(
+        "import-idm-quarter",
+        help="Validate one official VDR quarter; write only with --write.",
+    )
+    intraday.add_argument("--year", required=True, type=int)
+    intraday.add_argument("--quarter", required=True, type=int, choices=(1, 2, 3, 4))
+    intraday.add_argument("--write", action="store_true")
     return parser
 
 
@@ -147,6 +154,38 @@ def main(argv: list[str] | None = None) -> int:
         )
         repository.initialize()
         print("Initialized configured market database")
+        return 0
+    if args.command == "import-idm-quarter":
+        from datetime import datetime, timezone
+        from zoneinfo import ZoneInfo
+        from market_forecast.config import Settings
+        from market_forecast.parsers import parse_operator_intraday_csv
+        from market_forecast.persistence import RawArtifactStore, create_market_repository
+        from market_forecast.sources import OperatorIntradaySource
+
+        settings = Settings.from_environment()
+        raw = OperatorIntradaySource(
+            timeout_seconds=settings.request_timeout_seconds
+        ).fetch_quarter(args.year, args.quarter)
+        results = parse_operator_intraday_csv(raw.content, args.year, args.quarter)
+        inserted = None
+        raw_sha256 = None
+        if args.write:
+            quarter_start = date(args.year, (args.quarter - 1) * 3 + 1, 1)
+            artifact = RawArtifactStore(settings.raw_data_directory).save(
+                raw.content, "operator_intraday", quarter_start, "csv"
+            )
+            repository = create_market_repository(settings.database_path, settings.database_url)
+            _, inserted = repository.store_intraday_collection(
+                artifact, raw.source_url, raw.content_type, datetime.now(timezone.utc), results
+            )
+            raw_sha256 = artifact.sha256
+        print(json.dumps({
+            "mode": "write" if args.write else "dry-run",
+            "year": args.year, "quarter": args.quarter, "records": len(results),
+            "days": len({row.delivery_start_utc.astimezone(ZoneInfo("Europe/Kyiv")).date() for row in results}),
+            "inserted": inserted, "raw_sha256": raw_sha256,
+        }))
         return 0
     if args.command == "collect":
         from market_forecast.config import Settings
