@@ -91,7 +91,6 @@ def _repository(database_path: Path | str) -> SQLiteMarketRepository:
     """Return Neon storage when configured, otherwise the local SQLite database."""
 
     settings = Settings.from_environment()
-    _anonymous_analytics(settings)
     return create_market_repository(Path(database_path), settings.database_url)
 
 
@@ -2155,6 +2154,7 @@ def main() -> None:
     st.set_page_config(page_title="RDN Market Intelligence", page_icon="⚡", layout="wide")
     _inject_styles()
     settings = Settings.from_environment()
+    _anonymous_analytics(settings)
     repository = create_market_repository(settings.database_path, settings.database_url)
     repository.initialize()
     available = repository.available_period(SOURCE)
