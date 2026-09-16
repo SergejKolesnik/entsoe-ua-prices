@@ -19,7 +19,8 @@ _REQUIRED_HEADERS = (
 
 
 def parse_gas_consumption_fact_csv(
-    content: bytes, reporting_month: date, source_sheet: str,
+    content: bytes, reporting_month: date, source_sheet: str, *,
+    total_tolerance_m3: Decimal = Decimal(0),
 ) -> list[GasConsumptionDay]:
     """Parse one complete month of verified commercial consumption facts.
 
@@ -30,6 +31,8 @@ def parse_gas_consumption_fact_csv(
 
     if reporting_month.day != 1:
         raise ValueError("reporting_month must be the first day of a month")
+    if total_tolerance_m3 < 0:
+        raise ValueError("total_tolerance_m3 must not be negative")
     if not source_sheet.strip():
         raise ValueError("source_sheet must not be empty")
     rows = list(csv.reader(StringIO(_decode(content)), strict=True))
@@ -66,10 +69,14 @@ def parse_gas_consumption_fact_csv(
     totals = rows[last_daily_row + 1]
     if len(totals) < 4:
         raise ValueError("Gas consumption fact monthly totals are incomplete")
-    if (_decimal(totals[2], "monthly requested total") != sum(item.planned_volume_m3 for item in days)
-            or _decimal(totals[3], "monthly commercial total")
-            != sum(item.actual_volume_m3 for item in days)):
-        raise ValueError("Gas consumption fact monthly totals do not reconcile")
+    if _decimal(totals[2], "monthly requested total") != sum(item.planned_volume_m3 for item in days):
+        raise ValueError("Gas consumption fact monthly requested total does not reconcile")
+    commercial_difference = abs(
+        _decimal(totals[3], "monthly commercial total")
+        - sum(item.actual_volume_m3 for item in days)
+    )
+    if commercial_difference > total_tolerance_m3:
+        raise ValueError("Gas consumption fact monthly commercial total does not reconcile")
     return days
 
 

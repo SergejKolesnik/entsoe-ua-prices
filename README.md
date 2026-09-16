@@ -323,6 +323,10 @@ python -m market_forecast.cli import-gas-fact-sheet `
   --write
 ```
 
+The command rejects any total mismatch by default. A bounded tolerance may be
+supplied only when the source owner explicitly confirms a minor discrepancy;
+the resulting command output records that tolerance.
+
 The current transport uses Google's evaluated CSV view and therefore requires
 the worksheet to be readable by the runtime. Do not make a confidential workbook
 public merely to satisfy this importer. A private service-account transport must

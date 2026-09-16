@@ -48,6 +48,17 @@ class GasConsumptionFactTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     parse_gas_consumption_fact_csv(stream.getvalue().encode(), date(2025, 9, 1), "fact")
 
+    def test_allows_only_explicit_small_commercial_total_difference(self) -> None:
+        rows = list(csv.reader(StringIO(fixture().decode())))
+        rows[-1][3] = "33003"
+        stream = StringIO(); csv.writer(stream).writerows(rows)
+        with self.assertRaisesRegex(ValueError, "commercial total"):
+            parse_gas_consumption_fact_csv(stream.getvalue().encode(), date(2025, 9, 1), "fact")
+        days = parse_gas_consumption_fact_csv(
+            stream.getvalue().encode(), date(2025, 9, 1), "fact", total_tolerance_m3=Decimal("3"),
+        )
+        self.assertEqual(sum(item.actual_volume_m3 for item in days), Decimal("33000"))
+
     def test_price_free_persistence_upserts_daily_facts(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = SQLiteMarketRepository(Path(temp) / "facts.sqlite3")

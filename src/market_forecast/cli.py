@@ -116,6 +116,7 @@ def build_parser() -> argparse.ArgumentParser:
     gas_fact_import.add_argument("--month", required=True, type=date.fromisoformat)
     gas_fact_import.add_argument("--sheet", required=True, dest="sheet_name")
     gas_fact_import.add_argument("--write", action="store_true")
+    gas_fact_import.add_argument("--total-tolerance-m3", type=Decimal, default=Decimal(0))
     annual = subparsers.add_parser("import-gas-year", help="Validate annual gas history; write only with --write.")
     annual.add_argument("--year", type=int, required=True)
     annual.add_argument("--sheet", required=True, dest="sheet_name")
@@ -635,7 +636,10 @@ def main(argv: list[str] | None = None) -> int:
         artifact = RawArtifactStore(settings.raw_data_directory).save(
             response.require_content(), "gas-consumption-fact", args.month, "csv"
         )
-        days = parse_gas_consumption_fact_csv(response.require_content(), args.month, args.sheet_name)
+        days = parse_gas_consumption_fact_csv(
+            response.require_content(), args.month, args.sheet_name,
+            total_tolerance_m3=args.total_tolerance_m3,
+        )
         written = None
         if args.write:
             written = create_market_repository(
@@ -644,7 +648,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"mode": "write" if args.write else "dry-run", "days": len(days),
                           "actual_total_m3": str(sum(item.actual_volume_m3 for item in days)),
                           "written": written, "month": args.month.isoformat(),
-                          "sheet": args.sheet_name, "raw_sha256": artifact.sha256}))
+                          "sheet": args.sheet_name, "total_tolerance_m3": str(args.total_tolerance_m3),
+                          "raw_sha256": artifact.sha256}))
         return 0
     if args.command == "import-gas-price-snapshot":
         from datetime import datetime, timezone
