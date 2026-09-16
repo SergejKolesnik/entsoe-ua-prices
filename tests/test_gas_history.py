@@ -16,6 +16,7 @@ from market_forecast.cli import main
 from market_forecast.domain import GasProcurementMonth
 from market_forecast.parsers.gas_history_csv import (
     HEADERS, MONTHS, PRICE_SNAPSHOT_HEADERS, parse_gas_history_csv, parse_gas_price_snapshot_csv,
+    parse_legacy_gas_price_csv,
 )
 from market_forecast.persistence import SQLiteMarketRepository
 from market_forecast.services.gas_consumption import monthly_consumption
@@ -51,7 +52,32 @@ def price_snapshot_fixture():
     return rows
 
 
+def legacy_price_fixture():
+    rows = [
+        ["Потребление природного газа по промплощадке завода в сентябре 2025г.", "", "", "", "", "", ""],
+        ["", "", "", "", "Всего, в т.ч:", "20000,00", "грн. за 1 000 куб.м без НДС"],
+        ["", "", "", "38000", "цена газа:", "20625,00", "грн. за 1 000 куб.м без НДС"],
+        ["", "", "", "", "", "1260,00", "грн. за 1 000 куб.м без НДС"],
+        ["", "", "", "1267", "цена мощности (бронирования):", "552,167", "грн. за 1 000 куб.м без НДС"],
+    ]
+    return rows
+
+
 class GasHistoryTests(unittest.TestCase):
+    def test_legacy_price_sheet_uses_confirmed_component_total(self):
+        month = parse_legacy_gas_price_csv(encode(legacy_price_fixture()), date(2025, 9, 1), "9 ціна газу у вересні 25")
+        self.assertEqual(month.commodity_price_uah_per_1000m3, Decimal("20625"))
+        self.assertEqual(month.distribution_price_uah_per_1000m3, Decimal("1260"))
+        self.assertEqual(month.capacity_price_uah_per_1000m3, Decimal("552.167"))
+        self.assertEqual(month.total_price_uah_per_1000m3, Decimal("22437.167"))
+
+    def test_legacy_price_sheet_rejects_changed_title_or_units(self):
+        for row, column, value in ((0, 0, "wrong"), (4, 6, "грн. с НДС")):
+            rows = legacy_price_fixture()
+            rows[row][column] = value
+            with self.assertRaises(ValueError):
+                parse_legacy_gas_price_csv(encode(rows), date(2025, 9, 1), "legacy")
+
     def test_combined_snapshot_returns_price_only_months_on_net_basis(self):
         months = parse_gas_price_snapshot_csv(encode(price_snapshot_fixture()), "2022,2023,2024")
         self.assertEqual([item.reporting_month for item in months], [date(2022, 1, 1), date(2022, 8, 1)])

@@ -109,6 +109,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     gas_import.add_argument("--month", required=True, type=date.fromisoformat)
     gas_import.add_argument("--sheet", required=True, dest="sheet_name")
+    gas_fact_import = subparsers.add_parser(
+        "import-gas-fact-sheet",
+        help="Validate one complete commercial gas-consumption fact sheet; write only with --write.",
+    )
+    gas_fact_import.add_argument("--month", required=True, type=date.fromisoformat)
+    gas_fact_import.add_argument("--sheet", required=True, dest="sheet_name")
+    gas_fact_import.add_argument("--write", action="store_true")
     annual = subparsers.add_parser("import-gas-year", help="Validate annual gas history; write only with --write.")
     annual.add_argument("--year", type=int, required=True)
     annual.add_argument("--sheet", required=True, dest="sheet_name")
@@ -128,6 +135,13 @@ def build_parser() -> argparse.ArgumentParser:
     combined_price_history.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
     combined_price_history.add_argument("--sheet", required=True, dest="sheet_name")
     combined_price_history.add_argument("--write", action="store_true")
+    legacy_price = subparsers.add_parser(
+        "import-gas-legacy-price-sheet",
+        help="Validate one audited legacy gas-price worksheet; write only with --write.",
+    )
+    legacy_price.add_argument("--month", required=True, type=date.fromisoformat)
+    legacy_price.add_argument("--sheet", required=True, dest="sheet_name")
+    legacy_price.add_argument("--write", action="store_true")
     intraday = subparsers.add_parser(
         "import-idm-quarter",
         help="Validate one official VDR quarter; write only with --write.",
@@ -575,6 +589,62 @@ def main(argv: list[str] | None = None) -> int:
             f"Gas procurement imported: month={args.month:%Y-%m} "
             f"months={stored_months} days={stored_days} actual_days={actual_days}"
         )
+        return 0
+    if args.command == "import-gas-legacy-price-sheet":
+        from datetime import datetime, timezone
+        from market_forecast.config import Settings
+        from market_forecast.parsers import parse_legacy_gas_price_csv
+        from market_forecast.persistence import create_market_repository
+        from market_forecast.persistence.raw_artifacts import RawArtifactStore
+        from market_forecast.sources import GoogleSheetsGasSource
+
+        if args.month.day != 1:
+            raise SystemExit("--month must be the first day of a month (YYYY-MM-01)")
+        settings = Settings.from_environment()
+        response = GoogleSheetsGasSource(
+            settings.require_gas_spreadsheet_id(), settings.request_timeout_seconds
+        ).fetch_worksheet(args.sheet_name)
+        artifact = RawArtifactStore(settings.raw_data_directory).save(
+            response.require_content(), "gas-legacy-price", args.month, "csv"
+        )
+        month = parse_legacy_gas_price_csv(response.require_content(), args.month, args.sheet_name)
+        written = None
+        if args.write:
+            written = create_market_repository(
+                settings.database_path, settings.database_url
+            ).store_gas_price_history(month, response.source_url, artifact.sha256, datetime.now(timezone.utc))
+        print(json.dumps({"mode": "write" if args.write else "dry-run", "month": args.month.isoformat(),
+                          "commodity_price": str(month.commodity_price_uah_per_1000m3),
+                          "total_price": str(month.total_price_uah_per_1000m3), "written": written,
+                          "sheet": args.sheet_name, "raw_sha256": artifact.sha256}))
+        return 0
+    if args.command == "import-gas-fact-sheet":
+        from datetime import datetime, timezone
+        from market_forecast.config import Settings
+        from market_forecast.parsers import parse_gas_consumption_fact_csv
+        from market_forecast.persistence import create_market_repository
+        from market_forecast.persistence.raw_artifacts import RawArtifactStore
+        from market_forecast.sources import GoogleSheetsGasSource
+
+        if args.month.day != 1:
+            raise SystemExit("--month must be the first day of a month (YYYY-MM-01)")
+        settings = Settings.from_environment()
+        response = GoogleSheetsGasSource(
+            settings.require_gas_spreadsheet_id(), settings.request_timeout_seconds
+        ).fetch_worksheet(args.sheet_name)
+        artifact = RawArtifactStore(settings.raw_data_directory).save(
+            response.require_content(), "gas-consumption-fact", args.month, "csv"
+        )
+        days = parse_gas_consumption_fact_csv(response.require_content(), args.month, args.sheet_name)
+        written = None
+        if args.write:
+            written = create_market_repository(
+                settings.database_path, settings.database_url
+            ).store_gas_consumption_days(days, datetime.now(timezone.utc))
+        print(json.dumps({"mode": "write" if args.write else "dry-run", "days": len(days),
+                          "actual_total_m3": str(sum(item.actual_volume_m3 for item in days)),
+                          "written": written, "month": args.month.isoformat(),
+                          "sheet": args.sheet_name, "raw_sha256": artifact.sha256}))
         return 0
     if args.command == "import-gas-price-snapshot":
         from datetime import datetime, timezone
