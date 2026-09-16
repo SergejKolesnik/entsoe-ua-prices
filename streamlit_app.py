@@ -794,8 +794,6 @@ def _draw_daily_market_brief(
     brief = build_daily_market_brief(
         frame,
         _load_price_volumes(str(database_path), date_from, date_to),
-        _load_neighbor_prices(str(database_path), date_from, date_to),
-        _load_cross_border_flows(str(database_path), date_from, date_to),
         selected_date,
     )
     st.markdown("### Щоденний огляд РДН")
@@ -833,18 +831,15 @@ def _draw_daily_market_brief(
         ),
     )
     metrics[3].metric(
-        "Контекст доступний",
-        f"{len(brief.confirmed_signals) - 1}/3",
-        "обсяг · сусіди · перетоки",
+        "Обсяг РДН",
+        (
+            f"{brief.volume_change_percent:+.1f}%"
+            if brief.volume_change_percent is not None
+            else "Немає даних"
+        ),
+        "до попередньої доби" if brief.volume_change_percent is not None else None,
     )
     st.info(brief.summary)
-    st.markdown("#### Контекст доби")
-    signals = st.columns(3)
-    _draw_context_signal(signals[0], "Обсяг РДН", brief.volume_change_percent, "%")
-    _draw_context_signal(signals[1], "Сусідні ринки", brief.neighbor_change_percent, "%")
-    _draw_context_signal(
-        signals[2], "Чистий імпорт", brief.net_import_change_mwh, " МВт·год"
-    )
     weather = _load_weather_day_context(str(database_path), selected_date)
     if weather is not None:
         st.markdown("#### Погодні умови доби")
@@ -863,15 +858,6 @@ def _draw_daily_market_brief(
             f"{weather['forecast_vintage_utc'].astimezone(KYIV).strftime('%d.%m %H:%M')}. "
             "Він описує погодний фон і не подається як доведена причина зміни ціни."
         )
-
-
-def _draw_context_signal(column, label: str, value: float | None, suffix: str) -> None:
-    """Render one evidence item without inventing a value for missing context."""
-
-    if value is None:
-        column.metric(label, "Немає даних")
-        return
-    column.metric(label, f"{value:+,.1f}{suffix}".replace(",", " "), "до попередньої доби")
 
 
 @st.cache_data(ttl=300)
