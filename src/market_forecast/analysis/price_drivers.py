@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -15,6 +17,118 @@ PRICE_SEGMENTS = (
     ("Вечірній пік", 17, 22),
     ("Пізній вечір", 23, 23),
 )
+KYIV = ZoneInfo("Europe/Kyiv")
+
+
+@dataclass(frozen=True, slots=True)
+class DailyMarketBrief:
+    """A transparent, non-causal daily RDN commentary and its evidence status."""
+
+    delivery_date: date
+    previous_date: date
+    summary: str
+    price_periods: int
+    expected_price_periods: int
+    confirmed_signals: tuple[str, ...]
+    unavailable_signals: tuple[str, ...]
+
+
+def expected_price_periods(delivery_date: date) -> int:
+    """Return the number of hourly settlement periods in a Kyiv calendar day."""
+
+    from datetime import datetime, time, timedelta, timezone
+
+    start = datetime.combine(delivery_date, time.min, KYIV).astimezone(timezone.utc)
+    end = datetime.combine(
+        delivery_date + timedelta(days=1), time.min, KYIV
+    ).astimezone(timezone.utc)
+    return int((end - start).total_seconds() // 3600)
+
+
+def build_daily_market_brief(
+    prices: pd.DataFrame,
+    volumes: pd.DataFrame,
+    neighbor_prices: pd.DataFrame,
+    flows: pd.DataFrame,
+    selected_date: date,
+) -> DailyMarketBrief | None:
+    """Build a daily RDN comment only when both compared price days are complete.
+
+    Secondary data is optional and is explicitly reported as unavailable instead
+    of being inferred. The narrative describes concurrent observations only.
+    """
+
+    comparison = build_price_driver_comparison(prices, volumes, selected_date)
+    if comparison is None:
+        return None
+    previous_date = comparison["previous_date"]
+    current_periods = _price_period_count(prices, selected_date)
+    previous_periods = _price_period_count(prices, previous_date)
+    expected_current = expected_price_periods(selected_date)
+    expected_previous = expected_price_periods(previous_date)
+    if current_periods != expected_current or previous_periods != expected_previous:
+        return None
+
+    confirmed: list[str] = ["ціна РДН"]
+    unavailable: list[str] = []
+    if comparison.get("volume_change_percent") is not None:
+        confirmed.append("обсяг РДН")
+    else:
+        unavailable.append("обсяг РДН")
+
+    neighbor_change = neighbor_daily_change(
+        neighbor_prices, selected_date, previous_date
+    )
+    if neighbor_change is not None:
+        confirmed.append("сусідні ринки")
+    else:
+        unavailable.append("сусідні ринки")
+
+    complete_flows = complete_flow_days(flows)
+    flow_change = daily_net_import_comparison(
+        complete_flows, selected_date, previous_date
+    )
+    if flow_change is not None:
+        confirmed.append("фізичні перетоки")
+    else:
+        unavailable.append("фізичні перетоки")
+
+    return DailyMarketBrief(
+        delivery_date=selected_date,
+        previous_date=previous_date,
+        summary=build_daily_explanation(comparison, neighbor_change, flow_change),
+        price_periods=current_periods,
+        expected_price_periods=expected_current,
+        confirmed_signals=tuple(confirmed),
+        unavailable_signals=tuple(unavailable),
+    )
+
+
+def complete_flow_days(flows: pd.DataFrame, expected_markets: int = 4) -> pd.DataFrame:
+    """Keep only days with all border directions and complete interval coverage."""
+
+    required = {"delivery_date", "market_name", "direction", "interval_hours"}
+    if flows.empty or not required.issubset(flows.columns):
+        return pd.DataFrame(columns=flows.columns)
+    coverage = flows.groupby(
+        ["delivery_date", "market_name", "direction"], as_index=False
+    )["interval_hours"].sum()
+    complete_dates = coverage.groupby("delivery_date").filter(
+        lambda group: len(group) == expected_markets * 2
+        and (
+            group["interval_hours"]
+            >= expected_price_periods(group.name) - 0.01
+        ).all()
+    )["delivery_date"].unique()
+    return flows[flows["delivery_date"].isin(complete_dates)].copy()
+
+
+def _price_period_count(prices: pd.DataFrame, delivery_date: date) -> int:
+    """Count rows for one delivery day without treating missing rows as zeros."""
+
+    if prices.empty or "delivery_date" not in prices.columns:
+        return 0
+    return int((prices["delivery_date"] == delivery_date).sum())
 
 
 def build_price_driver_comparison(

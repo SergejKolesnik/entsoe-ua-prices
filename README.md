@@ -152,6 +152,8 @@ GitHub Actions exposes the same operation as `Refresh market data` → `diagnose
 
 The **Фактори ціни** tab is a transparent diagnostic, not a causal model. It compares the selected day with the latest earlier observed day and with the mean of up to seven earlier available days, then separates night, morning, solar hours, evening peak, and late evening. A short Ukrainian summary ranks the largest time-of-day deviation and lists only observed co-movements: DAM volume, neighboring-market prices, and fully covered cross-border flows. The hourly chart overlays both price days with selected-day net imports only when every configured border and direction is complete. Weather, generation availability, and load remain explicitly marked as hypotheses until their decision-time vintages can be selected without future-data leakage.
 
+The **Огляд** tab starts with a daily RDN comment for the selected delivery day. It is calculated from the same validated data already held by the application; opening the page never triggers a source request or writes to Neon. The comment is shown only when both compared RDN days have all 23, 24, or 25 Kyiv settlement periods. It labels DAM volume, neighboring-market prices, and physical flows as either confirmed signals or unavailable context, and never presents co-movement as proof of a cause.
+
 The day overview reports the Market Operator-style Base, Peak, and Offpeak
 indices. Peak uses settlement periods 09:00–20:00; Offpeak uses 01:00–08:00
 and 21:00–24:00. The calculation keeps valid 23/24/25-period delivery days.

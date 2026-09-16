@@ -1,13 +1,16 @@
 """Decision-support analytics built from validated market observations."""
 
 from .price_drivers import (
+    DailyMarketBrief,
     PRICE_SEGMENTS,
     analyze_flow_price_relationship,
     align_hourly_flow_prices,
     build_daily_explanation,
+    build_daily_market_brief,
     build_hourly_price_flow_comparison,
     build_price_driver_comparison,
     daily_net_import_comparison,
+    complete_flow_days,
     describe_flow_price_relationship,
     neighbor_daily_change,
 )
@@ -32,13 +35,16 @@ from .seasonality import (
 )
 
 __all__ = [
+    "DailyMarketBrief",
     "PRICE_SEGMENTS",
     "analyze_flow_price_relationship",
     "align_hourly_flow_prices",
     "build_daily_explanation",
+    "build_daily_market_brief",
     "build_hourly_price_flow_comparison",
     "build_price_driver_comparison",
     "daily_net_import_comparison",
+    "complete_flow_days",
     "describe_flow_price_relationship",
     "neighbor_daily_change",
     "DailyPriceIndices",

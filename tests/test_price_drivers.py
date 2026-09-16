@@ -7,15 +7,107 @@ from market_forecast.analysis import (
     analyze_flow_price_relationship,
     align_hourly_flow_prices,
     build_daily_explanation,
+    build_daily_market_brief,
     build_hourly_price_flow_comparison,
     build_price_driver_comparison,
     daily_net_import_comparison,
     describe_flow_price_relationship,
+    complete_flow_days,
     neighbor_daily_change,
 )
 
 
 class PriceDriverComparisonTests(unittest.TestCase):
+    def test_daily_brief_card_renders_without_a_source_request(self):
+        from streamlit.testing.v1 import AppTest
+
+        selected = date(2026, 8, 21)
+        previous = date(2026, 8, 20)
+        prices = pd.DataFrame(
+            [
+                {"delivery_date": day, "hour": hour, "price": price}
+                for day, price in ((previous, 5_000), (selected, 6_000))
+                for hour in range(24)
+            ]
+        )
+        volumes = pd.DataFrame(
+            [
+                {"delivery_date": previous, "volume_mwh": 100},
+                {"delivery_date": selected, "volume_mwh": 120},
+            ]
+        )
+        script = (
+            "import datetime\n"
+            "from datetime import date\n"
+            "from pathlib import Path\n"
+            "from unittest.mock import patch\n"
+            "import pandas as pd\n"
+            "import streamlit_app as app\n"
+            f"prices = pd.DataFrame({prices.to_dict('records')!r})\n"
+            f"volumes = pd.DataFrame({volumes.to_dict('records')!r})\n"
+            "with patch.object(app, '_load_price_volumes', return_value=volumes), "
+            "patch.object(app, '_load_neighbor_prices', return_value=pd.DataFrame()), "
+            "patch.object(app, '_load_cross_border_flows', return_value=pd.DataFrame()):\n"
+            f"    app._draw_daily_market_brief(Path('unused'), prices, date(2026, 8, 20), date(2026, 8, 21), date(2026, 8, 21))\n"
+        )
+
+        rendered = AppTest.from_string(script).run(timeout=30)
+
+        self.assertEqual(len(rendered.exception), 0)
+        self.assertEqual(rendered.markdown[0].value, "### Щоденний огляд РДН")
+
+    def test_daily_brief_uses_only_complete_price_days_and_labels_missing_context(self):
+        selected = date(2026, 8, 21)
+        previous = date(2026, 8, 20)
+        prices = pd.DataFrame(
+            [
+                {"delivery_date": day, "hour": hour, "price": price}
+                for day, price in ((previous, 5_000), (selected, 6_000))
+                for hour in range(24)
+            ]
+        )
+        volumes = pd.DataFrame(
+            [
+                {"delivery_date": previous, "volume_mwh": 100},
+                {"delivery_date": selected, "volume_mwh": 120},
+            ]
+        )
+
+        brief = build_daily_market_brief(
+            prices, volumes, pd.DataFrame(), pd.DataFrame(), selected
+        )
+
+        self.assertIsNotNone(brief)
+        self.assertIn("ціна РДН", brief.confirmed_signals)
+        self.assertIn("обсяг РДН", brief.confirmed_signals)
+        self.assertEqual(brief.unavailable_signals, ("сусідні ринки", "фізичні перетоки"))
+        self.assertIn("не доказ причинно-наслідкового", brief.summary)
+
+        incomplete = prices.iloc[:-1]
+        self.assertIsNone(
+            build_daily_market_brief(
+                incomplete, volumes, pd.DataFrame(), pd.DataFrame(), selected
+            )
+        )
+
+    def test_complete_flow_days_requires_every_market_and_handles_spring_dst(self):
+        delivery_date = date(2026, 3, 29)
+        rows = [
+            {
+                "delivery_date": delivery_date,
+                "market_name": market,
+                "direction": direction,
+                "interval_hours": 23.0,
+            }
+            for market in ("Польща", "Словаччина", "Угорщина", "Румунія")
+            for direction in ("Імпорт", "Експорт")
+        ]
+
+        complete = complete_flow_days(pd.DataFrame(rows))
+
+        self.assertEqual(len(complete), 8)
+        self.assertTrue(complete_flow_days(pd.DataFrame(rows[:-1])).empty)
+
     def test_compares_latest_earlier_day_and_segments(self):
         prices = pd.DataFrame(
             [
