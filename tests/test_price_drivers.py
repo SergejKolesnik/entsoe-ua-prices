@@ -47,7 +47,12 @@ class PriceDriverComparisonTests(unittest.TestCase):
             f"volumes = pd.DataFrame({volumes.to_dict('records')!r})\n"
             "with patch.object(app, '_load_price_volumes', return_value=volumes), "
             "patch.object(app, '_load_neighbor_prices', return_value=pd.DataFrame()), "
-            "patch.object(app, '_load_cross_border_flows', return_value=pd.DataFrame()):\n"
+            "patch.object(app, '_load_cross_border_flows', return_value=pd.DataFrame()), "
+            "patch.object(app, '_load_weather_day_context', return_value={"
+            "'forecast_vintage_utc': datetime.datetime(2026, 8, 20, 18, tzinfo=datetime.timezone.utc), "
+            "'temperature_min_c': 12.0, 'temperature_max_c': 24.0, "
+            "'daylight_cloud_cover_percent': 40.0, 'daylight_radiation_wm2': 200.0, "
+            "'locations': 6}):\n"
             f"    app._draw_daily_market_brief(Path('unused'), prices, date(2026, 8, 20), date(2026, 8, 21), date(2026, 8, 21))\n"
         )
 
@@ -55,6 +60,7 @@ class PriceDriverComparisonTests(unittest.TestCase):
 
         self.assertEqual(len(rendered.exception), 0)
         self.assertEqual(rendered.markdown[0].value, "### Щоденний огляд РДН")
+        self.assertEqual(len(rendered.metric), 10)
 
     def test_daily_brief_uses_only_complete_price_days_and_labels_missing_context(self):
         selected = date(2026, 8, 21)
@@ -81,7 +87,8 @@ class PriceDriverComparisonTests(unittest.TestCase):
         self.assertIn("ціна РДН", brief.confirmed_signals)
         self.assertIn("обсяг РДН", brief.confirmed_signals)
         self.assertEqual(brief.unavailable_signals, ("сусідні ринки", "фізичні перетоки"))
-        self.assertIn("не доказ причинно-наслідкового", brief.summary)
+        self.assertIn("Середня ціна РДН", brief.summary)
+        self.assertIn("Найбільша зміна", brief.summary)
 
         incomplete = prices.iloc[:-1]
         self.assertIsNone(

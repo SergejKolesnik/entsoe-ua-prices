@@ -154,6 +154,8 @@ The **Фактори ціни** tab is a transparent diagnostic, not a causal mo
 
 The **Огляд** tab starts with a daily RDN comment for the selected delivery day. It is calculated from the same validated data already held by the application; opening the page never triggers a source request or writes to Neon. The comment is shown only when both compared RDN days have all 23, 24, or 25 Kyiv settlement periods. It labels DAM volume, neighboring-market prices, and physical flows as either confirmed signals or unavailable context, and never presents co-movement as proof of a cause.
 
+The daily card separates four readable price indicators from the underlying context: daily RDN average, the largest time-of-day movement, position against the prior seven available days, and coverage of volume, neighboring markets, and flows. When a complete Open-Meteo forecast exists, a separate weather block gives the unweighted six-region temperature range, daylight cloud cover, and shortwave radiation. It selects only the latest forecast saved before the delivery day begins and is explicitly descriptive; weather is not presented as a proven price driver.
+
 The day overview reports the Market Operator-style Base, Peak, and Offpeak
 indices. Peak uses settlement periods 09:00–20:00; Offpeak uses 01:00–08:00
 and 21:00–24:00. The calculation keeps valid 23/24/25-period delivery days.
