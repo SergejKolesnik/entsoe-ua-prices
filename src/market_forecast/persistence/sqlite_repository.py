@@ -919,6 +919,45 @@ class SQLiteMarketRepository:
             for row in rows
         ]
 
+    def list_weather_forecasts_as_of(
+        self,
+        period_start_utc: datetime,
+        period_end_utc: datetime,
+        available_at_utc: datetime,
+    ) -> list[WeatherForecastPoint]:
+        """Return the latest forecast known no later than one explicit cutoff."""
+
+        start = _utc_iso(period_start_utc, "period_start_utc")
+        end = _utc_iso(period_end_utc, "period_end_utc")
+        cutoff = _utc_iso(available_at_utc, "available_at_utc")
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT location_id, latitude, longitude, forecast_vintage_utc,
+                          valid_start_utc, temperature_c, cloud_cover_percent,
+                          shortwave_radiation_wm2, wind_speed_100m_kmh, source, model
+                   FROM (
+                       SELECT *, ROW_NUMBER() OVER (
+                           PARTITION BY source, model, location_id, valid_start_utc
+                           ORDER BY forecast_vintage_utc DESC
+                       ) AS position
+                       FROM weather_forecasts
+                       WHERE valid_start_utc >= ? AND valid_start_utc < ?
+                         AND forecast_vintage_utc <= ?
+                   ) WHERE position = 1
+                   ORDER BY location_id, valid_start_utc""",
+                (start, end, cutoff),
+            ).fetchall()
+        return [
+            WeatherForecastPoint(
+                location_id=row[0], latitude=Decimal(row[1]), longitude=Decimal(row[2]),
+                forecast_vintage_utc=_parse_utc(row[3]), valid_start_utc=_parse_utc(row[4]),
+                temperature_c=Decimal(row[5]), cloud_cover_percent=Decimal(row[6]),
+                shortwave_radiation_wm2=Decimal(row[7]),
+                wind_speed_100m_kmh=Decimal(row[8]), source=row[9], model=row[10],
+            )
+            for row in rows
+        ]
+
     def list_price_volumes(
         self, source: str, period_start_utc: datetime, period_end_utc: datetime
     ) -> list[tuple[datetime, Decimal | None]]:

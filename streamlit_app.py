@@ -26,6 +26,7 @@ from market_forecast.analysis import (  # noqa: E402
     analyze_flow_price_relationship,
     align_hourly_flow_prices,
     build_daily_market_brief,
+    build_weather_day_context,
     build_daily_explanation,
     build_hourly_price_flow_comparison,
     build_monthly_seasonality_profile,
@@ -53,6 +54,7 @@ from market_forecast.persistence import (  # noqa: E402
     create_market_repository,
 )
 from market_forecast.services import aggregate_price_rows_hourly, build_quality_report  # noqa: E402
+from market_forecast.weather_locations import WEATHER_LOCATIONS  # noqa: E402
 
 
 KYIV = ZoneInfo("Europe/Kyiv")
@@ -803,15 +805,98 @@ def _draw_daily_market_brief(
             "доби потрібне повне погодинне покриття РДН."
         )
         return
-    st.info(brief.summary)
-    st.caption(
-        "Підтверджені сигнали: " + ", ".join(brief.confirmed_signals) + ". "
-        + (
-            "Ще не доступні: " + ", ".join(brief.unavailable_signals) + "."
-            if brief.unavailable_signals
-            else "Усі заплановані сигнали доступні."
-        )
+    metrics = st.columns(4)
+    metrics[0].metric(
+        "Середня РДН",
+        f"{brief.current_average:,.0f} грн/МВт·год".replace(",", " "),
+        (
+            f"{brief.percent_change:+.1f}% до {brief.previous_date.strftime('%d.%m')}"
+            if brief.percent_change is not None
+            else f"{brief.absolute_change:+,.0f} грн/МВт·год"
+        ),
     )
+    metrics[1].metric(
+        "Найбільша зміна",
+        brief.strongest_segment or "—",
+        (
+            f"{brief.strongest_segment_change_percent:+.1f}%"
+            if brief.strongest_segment_change_percent is not None
+            else None
+        ),
+    )
+    metrics[2].metric(
+        "До 7-денного рівня",
+        (
+            f"{brief.seven_day_change_percent:+.1f}%"
+            if brief.seven_day_change_percent is not None
+            else "Немає бази"
+        ),
+    )
+    metrics[3].metric(
+        "Контекст доступний",
+        f"{len(brief.confirmed_signals) - 1}/3",
+        "обсяг · сусіди · перетоки",
+    )
+    st.info(brief.summary)
+    st.markdown("#### Контекст доби")
+    signals = st.columns(3)
+    _draw_context_signal(signals[0], "Обсяг РДН", brief.volume_change_percent, "%")
+    _draw_context_signal(signals[1], "Сусідні ринки", brief.neighbor_change_percent, "%")
+    _draw_context_signal(
+        signals[2], "Чистий імпорт", brief.net_import_change_mwh, " МВт·год"
+    )
+    weather = _load_weather_day_context(str(database_path), selected_date)
+    if weather is not None:
+        st.markdown("#### Погодні умови доби")
+        weather_metrics = st.columns(3)
+        weather_metrics[0].metric(
+            "Температура", f"{weather['temperature_min_c']:.0f}…{weather['temperature_max_c']:.0f} °C"
+        )
+        weather_metrics[1].metric(
+            "Хмарність, 10–16", f"{weather['daylight_cloud_cover_percent']:.0f}%"
+        )
+        weather_metrics[2].metric(
+            "Сонячне випромінення, 10–16", f"{weather['daylight_radiation_wm2']:.0f} Вт/м²"
+        )
+        st.caption(
+            f"Неваговий прогноз за {weather['locations']} регіонами, збережений "
+            f"{weather['forecast_vintage_utc'].astimezone(KYIV).strftime('%d.%m %H:%M')}. "
+            "Він описує погодний фон і не подається як доведена причина зміни ціни."
+        )
+
+
+def _draw_context_signal(column, label: str, value: float | None, suffix: str) -> None:
+    """Render one evidence item without inventing a value for missing context."""
+
+    if value is None:
+        column.metric(label, "Немає даних")
+        return
+    column.metric(label, f"{value:+,.1f}{suffix}".replace(",", " "), "до попередньої доби")
+
+
+@st.cache_data(ttl=300)
+def _load_weather_day_context(database_path: str, delivery_date: date) -> dict | None:
+    """Load a pre-delivery weather forecast without leaking later revisions."""
+
+    start = datetime.combine(delivery_date, time.min, KYIV).astimezone(timezone.utc)
+    end = datetime.combine(
+        delivery_date + timedelta(days=1), time.min, KYIV
+    ).astimezone(timezone.utc)
+    context = build_weather_day_context(
+        _repository(database_path).list_weather_forecasts_as_of(start, end, start),
+        delivery_date,
+        expected_locations=len(WEATHER_LOCATIONS),
+    )
+    if context is None:
+        return None
+    return {
+        "forecast_vintage_utc": context.forecast_vintage_utc,
+        "temperature_min_c": context.temperature_min_c,
+        "temperature_max_c": context.temperature_max_c,
+        "daylight_cloud_cover_percent": context.daylight_cloud_cover_percent,
+        "daylight_radiation_wm2": context.daylight_radiation_wm2,
+        "locations": context.locations,
+    }
 
 
 def _draw_overview(frame: pd.DataFrame, selected_date: date) -> None:

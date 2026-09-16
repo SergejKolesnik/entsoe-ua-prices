@@ -14,6 +14,7 @@ from .price_drivers import (
     describe_flow_price_relationship,
     neighbor_daily_change,
 )
+from .weather_context import WeatherDayContext, build_weather_day_context
 from .market_indices import (
     DailyPriceIndices,
     PriceCapRegime,
@@ -60,4 +61,6 @@ __all__ = [
     "YearOverYearMonth",
     "build_monthly_seasonality_profile",
     "build_year_over_year_month",
+    "WeatherDayContext",
+    "build_weather_day_context",
 ]

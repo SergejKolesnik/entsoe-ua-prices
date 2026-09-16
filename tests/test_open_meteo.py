@@ -6,6 +6,7 @@ from pathlib import Path
 
 from market_forecast.persistence import RawArtifactStore, SQLiteMarketRepository
 from market_forecast.sources import OpenMeteoSource, parse_open_meteo_forecast
+from market_forecast.analysis import build_weather_day_context
 from market_forecast.weather_locations import WEATHER_LOCATIONS
 
 
@@ -51,6 +52,29 @@ def _payload(locations, hours=2):
 
 
 class OpenMeteoTests(unittest.TestCase):
+    def test_weather_context_requires_all_regions_and_reports_daylight_conditions(self):
+        locations = WEATHER_LOCATIONS[:2]
+        payload = _payload(locations, hours=24)
+        start = datetime(2026, 8, 21, 21, tzinfo=timezone.utc)
+        payload[0]["hourly"]["time"] = [
+            (start + timedelta(hours=hour)).strftime("%Y-%m-%dT%H:%M")
+            for hour in range(24)
+        ]
+        payload[1]["hourly"]["time"] = list(payload[0]["hourly"]["time"])
+        for item in payload:
+            item["hourly"]["shortwave_radiation"] = [100] * 24
+        records = parse_open_meteo_forecast(
+            json.dumps(payload).encode(), locations,
+            datetime(2026, 8, 21, 14, tzinfo=timezone.utc),
+        )
+
+        context = build_weather_day_context(records, datetime(2026, 8, 22).date(), 2)
+
+        self.assertIsNotNone(context)
+        self.assertEqual(context.locations, 2)
+        self.assertAlmostEqual(context.daylight_radiation_wm2, 100)
+        self.assertIsNone(build_weather_day_context(records, datetime(2026, 8, 22).date(), 3))
+
     def test_client_requests_utc_hourly_regional_forecast(self):
         locations = WEATHER_LOCATIONS[:2]
         content = json.dumps(_payload(locations)).encode()
@@ -94,10 +118,22 @@ class OpenMeteoTests(unittest.TestCase):
                 records[-1].valid_start_utc + timedelta(hours=1),
                 vintage,
             )
+            unavailable_before_vintage = repository.list_weather_forecasts_as_of(
+                records[0].valid_start_utc,
+                records[-1].valid_start_utc + timedelta(hours=1),
+                vintage - timedelta(seconds=1),
+            )
+            available_at_vintage = repository.list_weather_forecasts_as_of(
+                records[0].valid_start_utc,
+                records[-1].valid_start_utc + timedelta(hours=1),
+                vintage,
+            )
 
         self.assertEqual(inserted, 4)
         self.assertEqual(repeated, 0)
         self.assertEqual(loaded, records)
+        self.assertEqual(unavailable_before_vintage, [])
+        self.assertEqual(available_at_vintage, records)
 
     def test_parser_rejects_incomplete_series(self):
         locations = WEATHER_LOCATIONS[:1]

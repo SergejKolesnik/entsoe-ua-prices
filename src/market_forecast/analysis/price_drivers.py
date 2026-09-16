@@ -29,6 +29,15 @@ class DailyMarketBrief:
     summary: str
     price_periods: int
     expected_price_periods: int
+    current_average: float
+    absolute_change: float
+    percent_change: float | None
+    seven_day_change_percent: float | None
+    strongest_segment: str | None
+    strongest_segment_change_percent: float | None
+    volume_change_percent: float | None
+    neighbor_change_percent: float | None
+    net_import_change_mwh: float | None
     confirmed_signals: tuple[str, ...]
     unavailable_signals: tuple[str, ...]
 
@@ -93,12 +102,33 @@ def build_daily_market_brief(
     else:
         unavailable.append("фізичні перетоки")
 
+    strongest_segment = None
+    strongest_segment_change = None
+    segments = comparison.get("segments")
+    if isinstance(segments, pd.DataFrame) and not segments.empty:
+        comparable = segments.dropna(subset=["Зміна, %"])
+        if not comparable.empty:
+            strongest = comparable.loc[comparable["Зміна, %"].abs().idxmax()]
+            strongest_segment = str(strongest["Період"])
+            strongest_segment_change = float(strongest["Зміна, %"])
+
     return DailyMarketBrief(
         delivery_date=selected_date,
         previous_date=previous_date,
-        summary=build_daily_explanation(comparison, neighbor_change, flow_change),
+        summary=_brief_summary(comparison, strongest_segment, strongest_segment_change),
         price_periods=current_periods,
         expected_price_periods=expected_current,
+        current_average=float(comparison["current_average"]),
+        absolute_change=float(comparison["absolute_change"]),
+        percent_change=comparison["percent_change"],
+        seven_day_change_percent=comparison["seven_day_change_percent"],
+        strongest_segment=strongest_segment,
+        strongest_segment_change_percent=strongest_segment_change,
+        volume_change_percent=comparison["volume_change_percent"],
+        neighbor_change_percent=neighbor_change,
+        net_import_change_mwh=(
+            float(flow_change["absolute_change_mwh"]) if flow_change is not None else None
+        ),
         confirmed_signals=tuple(confirmed),
         unavailable_signals=tuple(unavailable),
     )
@@ -129,6 +159,33 @@ def _price_period_count(prices: pd.DataFrame, delivery_date: date) -> int:
     if prices.empty or "delivery_date" not in prices.columns:
         return 0
     return int((prices["delivery_date"] == delivery_date).sum())
+
+
+def _brief_summary(
+    comparison: dict[str, Any],
+    strongest_segment: str | None,
+    strongest_segment_change: float | None,
+) -> str:
+    """State the two most useful daily observations without causal wording."""
+
+    change = comparison["percent_change"]
+    if change is None:
+        opening = (
+            f"Середня ціна РДН змінилась на {comparison['absolute_change']:+,.0f} "
+            f"грн/МВт·год до {comparison['previous_date'].strftime('%d.%m')}."
+        )
+    else:
+        direction = "зросла" if change > 0 else "знизилась" if change < 0 else "не змінилась"
+        opening = (
+            f"Середня ціна РДН {direction} на {abs(change):.1f}% "
+            f"до {comparison['previous_date'].strftime('%d.%m')}."
+        )
+    if strongest_segment is None or strongest_segment_change is None:
+        return opening
+    return (
+        f"{opening} Найбільша зміна — «{strongest_segment}» "
+        f"({strongest_segment_change:+.1f}%)."
+    )
 
 
 def build_price_driver_comparison(
