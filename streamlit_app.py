@@ -25,10 +25,12 @@ from market_forecast.config import Settings  # noqa: E402
 from market_forecast.analysis import (  # noqa: E402
     analyze_flow_price_relationship,
     align_hourly_flow_prices,
+    build_daily_market_brief,
     build_daily_explanation,
     build_hourly_price_flow_comparison,
     build_monthly_seasonality_profile,
     build_price_driver_comparison,
+    complete_flow_days,
     build_year_over_year_month,
     daily_net_import_comparison,
     describe_flow_price_relationship,
@@ -778,6 +780,37 @@ def _draw_gas_market(database_path: Path | str) -> None:
         "Ця вкладка показує внутрішню закупівельну ціну та споживання. "
         "Публічні індикатори українських і європейських газових ринків "
         "додамо окремим етапом після перевірки джерел і одиниць виміру."
+    )
+
+
+def _draw_daily_market_brief(
+    database_path: Path, frame: pd.DataFrame, date_from: date, date_to: date,
+    selected_date: date,
+) -> None:
+    """Render the evidence-bound daily RDN comment above the price chart."""
+
+    brief = build_daily_market_brief(
+        frame,
+        _load_price_volumes(str(database_path), date_from, date_to),
+        _load_neighbor_prices(str(database_path), date_from, date_to),
+        _load_cross_border_flows(str(database_path), date_from, date_to),
+        selected_date,
+    )
+    st.markdown("### Щоденний огляд РДН")
+    if brief is None:
+        st.info(
+            "Коментар ще не сформовано: для вибраної та попередньої доступної "
+            "доби потрібне повне погодинне покриття РДН."
+        )
+        return
+    st.info(brief.summary)
+    st.caption(
+        "Підтверджені сигнали: " + ", ".join(brief.confirmed_signals) + ". "
+        + (
+            "Ще не доступні: " + ", ".join(brief.unavailable_signals) + "."
+            if brief.unavailable_signals
+            else "Усі заплановані сигнали доступні."
+        )
     )
 
 
@@ -1797,18 +1830,9 @@ def _draw_price_drivers(
         )
 
     flow_frame = _load_cross_border_flows(str(database_path), date_from, date_to)
-    complete_flow_rows = pd.DataFrame()
-    if not flow_frame.empty:
-        coverage = flow_frame.groupby(
-            ["delivery_date", "market_name", "direction"], as_index=False
-        )["interval_hours"].sum()
-        complete_dates = coverage.groupby("delivery_date").filter(
-            lambda group: len(group) == len(NEIGHBOR_MARKETS) * 2
-            and (group["interval_hours"] >= 23.99).all()
-        )["delivery_date"].unique()
-        complete_flow_rows = flow_frame[
-            flow_frame["delivery_date"].isin(complete_dates)
-        ].copy()
+    complete_flow_rows = complete_flow_days(
+        flow_frame, expected_markets=len(NEIGHBOR_MARKETS)
+    )
     flow_change = daily_net_import_comparison(
         complete_flow_rows, selected_date, comparison["previous_date"]
     )
@@ -2318,6 +2342,9 @@ def main() -> None:
     tabs = st.tabs(tab_labels)
     overview, trends, drivers, intraday_market, gas_market, forecast, neighbors = tabs[:7]
     with overview:
+        _draw_daily_market_brief(
+            settings.database_path, frame, date_from, date_to, selected_date
+        )
         _draw_overview(frame, selected_date)
         _draw_market_volume(settings.database_path, selected_date)
     with trends:
