@@ -46,8 +46,6 @@ class PriceDriverComparisonTests(unittest.TestCase):
             f"prices = pd.DataFrame({prices.to_dict('records')!r})\n"
             f"volumes = pd.DataFrame({volumes.to_dict('records')!r})\n"
             "with patch.object(app, '_load_price_volumes', return_value=volumes), "
-            "patch.object(app, '_load_neighbor_prices', return_value=pd.DataFrame()), "
-            "patch.object(app, '_load_cross_border_flows', return_value=pd.DataFrame()), "
             "patch.object(app, '_load_weather_day_context', return_value={"
             "'forecast_vintage_utc': datetime.datetime(2026, 8, 20, 18, tzinfo=datetime.timezone.utc), "
             "'temperature_min_c': 12.0, 'temperature_max_c': 24.0, "
@@ -60,7 +58,7 @@ class PriceDriverComparisonTests(unittest.TestCase):
 
         self.assertEqual(len(rendered.exception), 0)
         self.assertEqual(rendered.markdown[0].value, "### Щоденний огляд РДН")
-        self.assertEqual(len(rendered.metric), 10)
+        self.assertEqual(len(rendered.metric), 7)
 
     def test_daily_brief_uses_only_complete_price_days_and_labels_missing_context(self):
         selected = date(2026, 8, 21)
@@ -79,22 +77,18 @@ class PriceDriverComparisonTests(unittest.TestCase):
             ]
         )
 
-        brief = build_daily_market_brief(
-            prices, volumes, pd.DataFrame(), pd.DataFrame(), selected
-        )
+        brief = build_daily_market_brief(prices, volumes, selected)
 
         self.assertIsNotNone(brief)
         self.assertIn("ціна РДН", brief.confirmed_signals)
         self.assertIn("обсяг РДН", brief.confirmed_signals)
-        self.assertEqual(brief.unavailable_signals, ("сусідні ринки", "фізичні перетоки"))
+        self.assertEqual(brief.unavailable_signals, ())
         self.assertIn("Середня ціна РДН", brief.summary)
         self.assertIn("Найбільша зміна", brief.summary)
 
         incomplete = prices.iloc[:-1]
         self.assertIsNone(
-            build_daily_market_brief(
-                incomplete, volumes, pd.DataFrame(), pd.DataFrame(), selected
-            )
+            build_daily_market_brief(incomplete, volumes, selected)
         )
 
     def test_complete_flow_days_requires_every_market_and_handles_spring_dst(self):

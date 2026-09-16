@@ -57,8 +57,6 @@ def expected_price_periods(delivery_date: date) -> int:
 def build_daily_market_brief(
     prices: pd.DataFrame,
     volumes: pd.DataFrame,
-    neighbor_prices: pd.DataFrame,
-    flows: pd.DataFrame,
     selected_date: date,
 ) -> DailyMarketBrief | None:
     """Build a daily RDN comment only when both compared price days are complete.
@@ -85,23 +83,6 @@ def build_daily_market_brief(
     else:
         unavailable.append("обсяг РДН")
 
-    neighbor_change = neighbor_daily_change(
-        neighbor_prices, selected_date, previous_date
-    )
-    if neighbor_change is not None:
-        confirmed.append("сусідні ринки")
-    else:
-        unavailable.append("сусідні ринки")
-
-    complete_flows = complete_flow_days(flows)
-    flow_change = daily_net_import_comparison(
-        complete_flows, selected_date, previous_date
-    )
-    if flow_change is not None:
-        confirmed.append("фізичні перетоки")
-    else:
-        unavailable.append("фізичні перетоки")
-
     strongest_segment = None
     strongest_segment_change = None
     segments = comparison.get("segments")
@@ -125,10 +106,8 @@ def build_daily_market_brief(
         strongest_segment=strongest_segment,
         strongest_segment_change_percent=strongest_segment_change,
         volume_change_percent=comparison["volume_change_percent"],
-        neighbor_change_percent=neighbor_change,
-        net_import_change_mwh=(
-            float(flow_change["absolute_change_mwh"]) if flow_change is not None else None
-        ),
+        neighbor_change_percent=None,
+        net_import_change_mwh=None,
         confirmed_signals=tuple(confirmed),
         unavailable_signals=tuple(unavailable),
     )
