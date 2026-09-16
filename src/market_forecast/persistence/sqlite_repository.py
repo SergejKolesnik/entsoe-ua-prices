@@ -400,6 +400,37 @@ class SQLiteMarketRepository:
                 )
         return 1, len(rows)
 
+    def store_gas_consumption_days(
+        self, days: Iterable[GasConsumptionDay], imported_at_utc: datetime,
+    ) -> int:
+        """Upsert a complete, price-free monthly fact source without inventing prices."""
+
+        rows = list(days)
+        if not rows:
+            raise ValueError("Gas consumption fact import has no daily rows")
+        if len({item.delivery_date for item in rows}) != len(rows):
+            raise ValueError("Gas consumption fact import has duplicate delivery dates")
+        if any(item.actual_volume_m3 is None for item in rows):
+            raise ValueError("Gas consumption fact import requires explicit commercial facts")
+        imported_at = _utc_iso(imported_at_utc, "imported_at_utc")
+        self.initialize()
+        with closing(self._connect()) as connection, connection:
+            for item in rows:
+                connection.execute(
+                    """INSERT INTO gas_consumption_days (
+                           delivery_date, planned_volume_m3, actual_volume_m3,
+                           source_sheet, imported_at_utc
+                       ) VALUES (?, ?, ?, ?, ?)
+                       ON CONFLICT(delivery_date) DO UPDATE SET
+                           planned_volume_m3 = excluded.planned_volume_m3,
+                           actual_volume_m3 = excluded.actual_volume_m3,
+                           source_sheet = excluded.source_sheet,
+                           imported_at_utc = excluded.imported_at_utc""",
+                    (item.delivery_date.isoformat(), str(item.planned_volume_m3),
+                     str(item.actual_volume_m3), item.source_sheet, imported_at),
+                )
+        return len(rows)
+
     def list_gas_procurement_months(self) -> list[tuple]:
         """Return normalized monthly price composition in chronological order."""
 

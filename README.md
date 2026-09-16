@@ -302,6 +302,31 @@ python -m market_forecast.cli import-gas-price-history `
 python -m market_forecast.cli import-gas-price-snapshot --from 2022-01-01 --to 2022-11-01 --sheet "2022,2023,2024" --write
 ```
 
+For the audited September 2025 legacy price layout, the imported total is the
+confirmed sum of the stated commodity, distribution, and capacity components:
+
+```powershell
+python -m market_forecast.cli import-gas-legacy-price-sheet `
+  --month 2025-09-01 `
+  --sheet "9 ціна газу у вересні 25" `
+  --write
+```
+
+A historical worksheet that contains commercial facts but no price fields uses a
+separate command. It writes only daily requested and actual consumption; it does
+not create a monthly procurement price row:
+
+```powershell
+python -m market_forecast.cli import-gas-fact-sheet `
+  --month 2025-09-01 `
+  --sheet "9 факт вересень 25" `
+  --write
+```
+
+The command rejects any total mismatch by default. A bounded tolerance may be
+supplied only when the source owner explicitly confirms a minor discrepancy;
+the resulting command output records that tolerance.
+
 The current transport uses Google's evaluated CSV view and therefore requires
 the worksheet to be readable by the runtime. Do not make a confidential workbook
 public merely to satisfy this importer. A private service-account transport must

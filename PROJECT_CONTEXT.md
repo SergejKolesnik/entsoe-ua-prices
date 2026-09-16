@@ -1,6 +1,6 @@
 # Ukraine Energy Market Forecast — Project Context
 
-Last updated: 2026-09-09
+Last updated: 2026-09-16
 
 ## Purpose
 
@@ -61,6 +61,8 @@ Phase 5: publication foundation. Durable ingestion, automated refresh, analytics
 - Internal gas procurement is an additive bounded context. Google Sheets remains the read-only source of truth; normalized monthly price composition and daily planned/actual consumption use dedicated tables and never reuse electricity price contracts. Commodity gas, distribution, capacity booking, total price, VAT semantics, and missing future actuals remain explicit. The initial CSV transport is suitable only while the workbook is readable by the runtime; private service-account access and public-display aggregation require separate approval.
 - The production Neon schema has the additive gas tables from migration 003. A validated initial import contains 29 monthly observations from February 2022 through September 2026 and 881 daily rows (857 actual, 24 future/missing). Historical hidden price sheets are readable through the same Google export when their exact names are registered; price-only import must stay dry-run first and must not rewrite daily consumption.
 - The VDR prototype is a separate bounded context: quarterly official CSV artifacts are parsed into their full hourly price-range and liquidity fields, with a strict 23/24/25-period Kyiv-day contract. It is never merged into DAM prices. Migration 007 and an explicitly approved write/import are required before the public VDR tab can show data.
+- Commercial gas-fact worksheets that omit price components use a separate strict parser and only upsert daily requested and actual consumption. They must contain every day in the reporting month and reconciled monthly totals; they never create or alter procurement-price rows. Any small total difference requires an explicit, logged import tolerance confirmed by the source owner.
+- Audited legacy price worksheets with merged labels are also isolated from consumption: their explicit commodity, distribution, and capacity components produce the VAT-exclusive total only after a verified source-specific contract. They write to price history and never imply a consumption fact.
 
 ## Security note
 

@@ -106,6 +106,59 @@ def parse_gas_price_snapshot_csv(content: bytes, source_sheet: str) -> list[GasP
     return sorted(result, key=lambda month: month.reporting_month)
 
 
+def parse_legacy_gas_price_csv(
+    content: bytes, reporting_month: date, source_sheet: str,
+) -> GasProcurementMonth:
+    """Parse the audited 2025 worksheet layout with price components in column F.
+
+    The sheet's first displayed amount is labelled ``Всего`` but is lower than
+    its explicitly labelled commodity price. It is therefore a legacy reference
+    value, never the imported total. The confirmed total is the sum of the
+    three stated VAT-exclusive components.
+    """
+
+    if reporting_month.day != 1:
+        raise ValueError("reporting_month must be the first day of a month")
+    if not source_sheet.strip():
+        raise ValueError("Legacy gas price source sheet is required")
+    rows = list(csv.reader(StringIO(content.decode("utf-8-sig", errors="strict")), strict=True))
+    if len(rows) < 5 or not rows[0]:
+        raise ValueError("Legacy gas price worksheet is too short")
+    title = _normalized(rows[0][0])
+    expected_title = _normalized(
+        f"Потребление природного газа по промплощадке завода в {MONTHS[reporting_month.month - 1]}е {reporting_month.year}г."
+    )
+    # September has a Russian irregular ending in the audited source title.
+    if reporting_month.month == 9:
+        expected_title = _normalized(
+            f"Потребление природного газа по промплощадке завода в сентябре {reporting_month.year}г."
+        )
+    if title != expected_title:
+        raise ValueError("Legacy gas price worksheet title/month is unsupported")
+    try:
+        commodity = _number(rows[2][5])
+        distribution = _number(rows[3][5])
+        capacity = _number(rows[4][5])
+        reference = _number(rows[1][5])
+        units = tuple(_normalized(rows[index][6]) for index in (2, 3, 4))
+    except IndexError as exc:
+        raise ValueError("Legacy gas price worksheet layout is incomplete") from exc
+    expected_unit = _normalized("грн. за 1 000 куб.м без НДС")
+    if units != (expected_unit, expected_unit, expected_unit):
+        raise ValueError("Legacy gas price worksheet units or VAT basis are unsupported")
+    if min(commodity, distribution, capacity, reference) < 0:
+        raise ValueError("Legacy gas price worksheet contains a negative price")
+    return GasProcurementMonth(
+        reporting_month=reporting_month,
+        commodity_price_uah_per_1000m3=commodity,
+        distribution_price_uah_per_1000m3=distribution,
+        capacity_price_uah_per_1000m3=capacity,
+        total_price_uah_per_1000m3=commodity + distribution + capacity,
+        planned_volume_m3=Decimal(0),
+        vat_included=False,
+        source_sheet=source_sheet,
+    )
+
 def parse_gas_history_csv(content: bytes, year: int) -> list[GasHistoryMonth]:
     """Require all twelve months and reconcile source totals before accepting."""
     text = content.decode("utf-8-sig", errors="strict")
