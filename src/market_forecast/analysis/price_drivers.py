@@ -57,12 +57,15 @@ def expected_price_periods(delivery_date: date) -> int:
 def build_daily_market_brief(
     prices: pd.DataFrame,
     volumes: pd.DataFrame,
+    neighbor_prices: pd.DataFrame,
+    flows: pd.DataFrame,
     selected_date: date,
 ) -> DailyMarketBrief | None:
     """Build a daily RDN comment only when both compared price days are complete.
 
-    Secondary data is optional and is explicitly reported as unavailable instead
-    of being inferred. The narrative describes concurrent observations only.
+    The public signature remains compatible with the diagnostic view. Neighbor
+    prices and flows are intentionally not used here because their publication
+    can lag the selected RDN day; they remain in their dedicated analytical tabs.
     """
 
     comparison = build_price_driver_comparison(prices, volumes, selected_date)

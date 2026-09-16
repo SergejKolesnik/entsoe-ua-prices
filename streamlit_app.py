@@ -794,6 +794,8 @@ def _draw_daily_market_brief(
     brief = build_daily_market_brief(
         frame,
         _load_price_volumes(str(database_path), date_from, date_to),
+        pd.DataFrame(),
+        pd.DataFrame(),
         selected_date,
     )
     st.markdown("### Щоденний огляд РДН")

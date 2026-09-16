@@ -77,7 +77,9 @@ class PriceDriverComparisonTests(unittest.TestCase):
             ]
         )
 
-        brief = build_daily_market_brief(prices, volumes, selected)
+        brief = build_daily_market_brief(
+            prices, volumes, pd.DataFrame(), pd.DataFrame(), selected
+        )
 
         self.assertIsNotNone(brief)
         self.assertIn("ціна РДН", brief.confirmed_signals)
@@ -88,7 +90,9 @@ class PriceDriverComparisonTests(unittest.TestCase):
 
         incomplete = prices.iloc[:-1]
         self.assertIsNone(
-            build_daily_market_brief(incomplete, volumes, selected)
+            build_daily_market_brief(
+                incomplete, volumes, pd.DataFrame(), pd.DataFrame(), selected
+            )
         )
 
     def test_complete_flow_days_requires_every_market_and_handles_spring_dst(self):
