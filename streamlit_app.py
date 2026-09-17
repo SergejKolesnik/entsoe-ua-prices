@@ -168,6 +168,20 @@ def _inject_styles() -> None:
         .analysis-context-card.forecast .analysis-context-value { color: #7de0aa; }
         .analysis-context-meta { color: #aab4c2; font-size: 11px; line-height: 1.45; }
         .analysis-context-meta strong { color: #e8edf4; }
+        .daily-review-date {
+            display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 14px;
+            margin: 0 0 13px; padding: 12px 15px;
+            background: linear-gradient(90deg, rgba(255,184,0,.18), rgba(17,30,45,.96));
+            border: 1px solid rgba(255,184,0,.44); border-left: 4px solid #ffb800;
+            border-radius: 8px;
+        }
+        .daily-review-date-label {
+            color: #ffcc4d; font-size: 12px; font-weight: 800;
+            letter-spacing: .08em; text-transform: uppercase;
+        }
+        .daily-review-date-value { color: #ffffff; font-size: 22px; font-weight: 800; }
+        .daily-review-date-comparison { color: #c7d0dd; font-size: 13px; }
+        .daily-review-date-comparison strong { color: #ffffff; }
         [data-testid="stMultiSelect"] [data-tag][aria-label="Україна"] {
             background: #b58cff !important; color: #101621 !important;
         }
@@ -798,7 +812,22 @@ def _draw_daily_market_brief(
         pd.DataFrame(),
         selected_date,
     )
-    st.markdown("### Щоденний огляд РДН")
+    st.markdown(f"### Щоденний огляд РДН · {selected_date.strftime('%d.%m.%Y')}")
+    comparison_text = (
+        f"Порівняння з <strong>{brief.previous_date.strftime('%d.%m.%Y')}</strong>"
+        if brief is not None
+        else "Порівняння з попередньою повною добою буде доступне після перевірки покриття"
+    )
+    st.markdown(
+        f"""
+        <div class="daily-review-date">
+          <span class="daily-review-date-label">Дата огляду РДН</span>
+          <span class="daily-review-date-value">{selected_date.strftime('%d.%m.%Y')}</span>
+          <span class="daily-review-date-comparison">{comparison_text}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     if brief is None:
         st.info(
             "Коментар ще не сформовано: для вибраної та попередньої доступної "

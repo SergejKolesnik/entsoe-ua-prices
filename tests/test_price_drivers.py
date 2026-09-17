@@ -57,7 +57,10 @@ class PriceDriverComparisonTests(unittest.TestCase):
         rendered = AppTest.from_string(script).run(timeout=30)
 
         self.assertEqual(len(rendered.exception), 0)
-        self.assertEqual(rendered.markdown[0].value, "### Щоденний огляд РДН")
+        self.assertIn("Щоденний огляд РДН · 21.08.2026", rendered.markdown[0].value)
+        self.assertIn("Дата огляду РДН", rendered.markdown[1].value)
+        self.assertIn("21.08.2026", rendered.markdown[1].value)
+        self.assertIn("Порівняння з <strong>20.08.2026</strong>", rendered.markdown[1].value)
         self.assertEqual(len(rendered.metric), 7)
 
     def test_daily_brief_uses_only_complete_price_days_and_labels_missing_context(self):
