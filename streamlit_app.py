@@ -113,7 +113,7 @@ def _inject_styles() -> None:
         div[data-testid="stTabs"] [role="tablist"] {
             gap: 12px;
             position: sticky;
-            top: 0;
+            top: 60px;
             z-index: 100;
             padding: .65rem 0 .55rem;
             background: #080d14;
