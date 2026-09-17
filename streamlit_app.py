@@ -110,7 +110,15 @@ def _inject_styles() -> None:
             padding: 14px 16px;
         }
         div[data-testid="stMetricValue"] { color: #f4f6f8; }
-        div[data-testid="stTabs"] [role="tablist"] { gap: 12px; }
+        div[data-testid="stTabs"] [role="tablist"] {
+            gap: 12px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            padding: .65rem 0 .55rem;
+            background: #080d14;
+            box-shadow: 0 8px 12px rgba(8,13,20,.92);
+        }
         div[data-testid="stTabs"] button[role="tab"] {
             color: #8a94a6; font-weight: 650; font-size: 15px;
         }
