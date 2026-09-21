@@ -340,6 +340,23 @@ belong in runtime secrets and must never be committed.
 This first stage intentionally does not expose internal procurement values in the
 public dashboard. Publication scope and aggregation must be approved separately.
 
+### Public gas-index dry run
+
+The isolated public-market prototype validates CEGHIX day-ahead prices, UEEX
+monthly VTT prices by payment terms, and the three daily UEEX margin indicators.
+It preserves native currency, unit, VAT basis, delivery date, source URL,
+retrieval timestamp, and raw-response hash. It has no database or dashboard path.
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m market_forecast.gas_indices_dry_run `
+  --output-dir data/gas-index-prototype/my-new-run
+```
+
+Each run requires a new local output directory. Source format drift, ambiguous
+prices, stale snapshots, duplicates, missing required fields, or unexpected units
+fail visibly. See [the gas-index prototype contract](docs/gas-index-prototype.md).
+
 - `OperatorMarketSource` discovers published results and returns raw source metadata.
 - `EntsoeSource` downloads raw XML and does not parse or persist it.
 - `parse_price_document` converts ENTSO-E XML to immutable hourly records.

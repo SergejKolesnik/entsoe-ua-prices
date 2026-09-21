@@ -65,6 +65,12 @@ Phase 5: publication foundation. Durable ingestion, automated refresh, analytics
 - The VDR prototype is a separate bounded context: quarterly official CSV artifacts are parsed into their full hourly price-range and liquidity fields, with a strict 23/24/25-period Kyiv-day contract. It is never merged into DAM prices. Migration 007 and an explicitly approved write/import are required before the public VDR tab can show data.
 - Commercial gas-fact worksheets that omit price components use a separate strict parser and only upsert daily requested and actual consumption. They must contain every day in the reporting month and reconciled monthly totals; they never create or alter procurement-price rows. Any small total difference requires an explicit, logged import tolerance confirmed by the source owner.
 - Audited legacy price worksheets with merged labels are also isolated from consumption: their explicit commodity, distribution, and capacity components produce the VAT-exclusive total only after a verified source-specific contract. They write to price history and never imply a consumption fact.
+- Public gas benchmarks remain an isolated local dry run. CEGHIX DA stays in
+  EUR/MWh with unspecified VAT; UEEX monthly and margin series stay in
+  UAH/1000m3 excluding VAT. Raw hashes and retrieval timestamps are retained,
+  missing values remain explicit, and no conversion, persistence, scheduler, or
+  Streamlit integration exists yet. The 2026-09-21 live run validated 15 CEGHIX,
+  139 monthly UEEX, and 3 UEEX margin observations without database access.
 
 ## Security note
 
@@ -94,5 +100,7 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
 6. Add regression fixtures for documented 23/25-period operator days when available.
 7. Validate the Neon adapter against migrated data, then deploy a read-only Streamlit staging application.
 8. After review, enable the `Publish Hermes report JSON` workflow and verify the first `hermes-report` branch publication before configuring Hermes.
-9. Validate the gas importer across the historical worksheet naming variants, decide the confidential/public aggregation boundary, then add UEEX market prices and a private authentication path before any gas dashboard publication.
+9. Review licensing and collection cadence for the validated CEGHIX/UEEX dry-run,
+   then design a separate public gas-factor schema and retention policy before any
+   scheduler, Neon write, or dashboard publication.
 10. Review a dry-run VDR quarter, apply migration 007 in a staging database, then import a bounded history only after approval; compare VDR–RDN only on matching delivery hours.
