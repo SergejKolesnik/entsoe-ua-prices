@@ -18,17 +18,17 @@ Main contains the RDN/DAM collection, validation, persistence, contextual market
 ## Active work
 
 - branch: codex/project-handoff-workflow
-- PR: pending
-- status: ACTIVE
+- PR: #51
+- status: READY
 - changed: adds the project handoff file, branch-completion protocol, and PR template.
-- tests/checks: pending markdown and diff validation.
+- tests/checks: GitHub compare confirms 3 changed files; no application tests run because this is documentation-only.
 - database/migration changes: none.
 - production impact: none.
-- unresolved issues: none.
+- unresolved issues: no checks are configured for this PR.
 
 ## Open items
 
-- Complete and review the handoff-workflow pull request.
+- Review and merge PR #51.
 - Keep Google Sheets imports read-only unless explicitly approved.
 - Treat production Neon writes and migrations as explicit-approval operations.
 - Keep DAM, gas, and VDR contracts isolated.
@@ -46,7 +46,7 @@ Main contains the RDN/DAM collection, validation, persistence, contextual market
 
 ## Recommended next action
 
-Review and merge the handoff-workflow PR after its documentation checks pass.
+Review and merge PR #51; then confirm main and delete the feature branch if it is no longer needed.
 
 ## New chat startup
 
