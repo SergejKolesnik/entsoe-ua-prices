@@ -246,7 +246,7 @@ jobs:
           date_to = date.fromisoformat(os.environ["DATE_TO"])
           days = (date_to - date_from).days + 1
           if days < 1 or days > 14:
-              raise SystemExit("Backfill must contain between 1 and 14 inclusive days")
+              raise SystemExit("Flow backfill must contain between 1 and 14 inclusive days")
           PY
       - name: Backfill directed physical flows
         run: >-
