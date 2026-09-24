@@ -446,7 +446,7 @@ def _daily_summary(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=900)
-def _load_rdn_diff_tariff() -> pd.DataFrame:
+def _load_rdn_diff_tariff(cache_schema: str = "hourly-volume-v2") -> pd.DataFrame:
     """Read the external NZF comparison workbook through its public CSV export."""
 
     return load_comparison_source()
