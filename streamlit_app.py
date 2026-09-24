@@ -511,7 +511,9 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
         f"економія {month['saving_pct'].mean():.1%}.".replace(",", " ")
     )
 
-    available_dates = list(complete["delivery_date"])
+    # Do not offer the current/incomplete delivery day in the hourly picker.
+    # The default is always the latest completed day at or before yesterday.
+    available_dates = list(eligible["delivery_date"])
     comparison_date = analysis_date if analysis_date in available_dates else available_dates[-1]
     selected_index = available_dates.index(comparison_date)
     comparison_date = st.selectbox(
@@ -519,7 +521,7 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
         available_dates,
         index=selected_index,
         format_func=lambda value: value.strftime("%d.%m.%Y"),
-        key="rdn_diff_tariff_day",
+        key=f"rdn_diff_tariff_day_{analysis_date.isoformat()}",
     )
     selected = source[source["delivery_date"] == comparison_date].iloc[0]
     hourly = pd.DataFrame({
