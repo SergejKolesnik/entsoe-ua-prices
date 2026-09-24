@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -475,18 +476,35 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
     if complete.empty:
         st.warning("Немає спільних денних значень РДН і фактичної ціни НЗФ.")
         return
-    latest = complete.iloc[-1]
+    preferred_date = selected_date - timedelta(days=1)
+    eligible = complete[complete["delivery_date"] <= preferred_date]
+    if eligible.empty:
+        eligible = complete
+    analysis_date = eligible.iloc[-1]["delivery_date"]
+    month_start = analysis_date.replace(day=1)
+    month = complete[
+        (complete["delivery_date"] >= month_start)
+        & (complete["delivery_date"] <= analysis_date)
+    ]
+    day = complete[complete["delivery_date"] == analysis_date].iloc[0]
+
+    st.markdown(f"#### Огляд завершеної доби · {analysis_date.strftime('%d.%m.%Y')}")
     metrics = st.columns(4)
-    metrics[0].metric("Днів порівняння", f"{len(complete)}")
-    metrics[1].metric("Середня РДН", f"{complete['rdn_daily'].mean():,.0f} грн/МВт·год".replace(",", " "))
-    metrics[2].metric("Середня НЗФ", f"{complete['weighted_nzf'].mean():,.0f} грн/МВт·год".replace(",", " "))
-    metrics[3].metric("Середня економія", f"{complete['saving_pct'].mean():.1%}")
+    metrics[0].metric("РДН за день", f"{day['rdn_daily']:,.0f} грн/МВт·год".replace(",", " "))
+    metrics[1].metric("НЗФ факт за день", f"{day['weighted_nzf']:,.0f} грн/МВт·год".replace(",", " "))
+    metrics[2].metric("Економія за день", f"{day['saving_pct']:.1%}")
+    metrics[3].metric("Днів з початку місяця", f"{len(month)}")
+    st.caption(
+        f"З початку місяця: РДН {month['rdn_daily'].mean():,.0f}, "
+        f"НЗФ {month['weighted_nzf'].mean():,.0f} грн/МВт·год, "
+        f"економія {month['saving_pct'].mean():.1%}.".replace(",", " ")
+    )
 
     available_dates = list(complete["delivery_date"])
-    comparison_date = selected_date if selected_date in available_dates else available_dates[-1]
+    comparison_date = analysis_date if analysis_date in available_dates else available_dates[-1]
     selected_index = available_dates.index(comparison_date)
     comparison_date = st.selectbox(
-        "День для погодинного профілю",
+        "Завершений день для погодинного аналізу",
         available_dates,
         index=selected_index,
         format_func=lambda value: value.strftime("%d.%m.%Y"),
@@ -504,41 +522,43 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
     hourly["hourly_cost"] = hourly["hourly_cost"].fillna(
         hourly["actual_volume"] * hourly["rdn_price"] / 1000
     )
-    hourly_figure = go.Figure()
+    hourly_figure = make_subplots(
+        rows=3,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.08,
+        subplot_titles=("Ціна РДН", "Фактичний обсяг споживання", "Фактичні витрати"),
+        row_heights=[0.46, 0.27, 0.27],
+    )
     hourly_figure.add_trace(go.Scatter(
         x=hourly["hour"], y=hourly["rdn_price"], name="РДН, грн/МВт·год",
-        mode="lines+markers", line=dict(color=AMBER, width=3), yaxis="y",
+        mode="lines+markers", line=dict(color=AMBER, width=3),
         customdata=hourly[["actual_volume", "hourly_cost"]],
         hovertemplate="Година %{x}<br>РДН: %{y:,.0f} грн/МВт·год<br>Обсяг: %{customdata[0]:,.2f}<br>Витрати: %{customdata[1]:,.2f} грн<extra></extra>",
+        row=1, col=1,
     ))
+    hourly_figure.add_trace(go.Bar(
+        x=hourly["hour"], y=hourly["actual_volume"], name="Фактичний обсяг",
+        marker_color="rgba(55,138,221,.72)",
+        hovertemplate="Година %{x}<br>Фактичний обсяг: %{y:,.2f} МВт·год<extra></extra>",
+        showlegend=False,
+        row=2, col=1,
+    ))
+    hourly_figure.add_trace(go.Bar(
+        x=hourly["hour"], y=hourly["hourly_cost"], name="Витрати за годину",
+        marker_color=BLUE, hovertemplate="Година %{x}<br>Витрати: %{y:,.2f} грн<extra></extra>",
+        showlegend=False,
+        row=3, col=1,
+    ))
+    hourly_figure.update_yaxes(title_text="грн/МВт·год", row=1, col=1)
+    hourly_figure.update_yaxes(title_text="МВт·год", row=2, col=1)
+    hourly_figure.update_yaxes(title_text="грн", row=3, col=1)
+    hourly_figure.update_xaxes(title_text="Година", row=3, col=1)
     hourly_figure.update_layout(
-        height=410, margin=dict(l=10, r=10, t=20, b=10), xaxis_title="Година",
-        yaxis=dict(title="грн/МВт·год"),
-        legend=dict(orientation="h", y=1.12), barmode="overlay",
+        height=820, margin=dict(l=10, r=10, t=55, b=10),
+        legend=dict(orientation="h", y=1.04), showlegend=True,
     )
     st.plotly_chart(hourly_figure, width="stretch")
-
-    if hourly["actual_volume"].notna().any():
-        volume_figure = go.Figure(go.Bar(
-            x=hourly["hour"], y=hourly["actual_volume"], name="Фактичний обсяг",
-            marker_color="rgba(55,138,221,.72)",
-            hovertemplate="Година %{x}<br>Фактичний обсяг: %{y:,.2f} МВт·год<extra></extra>",
-        ))
-        volume_figure.update_layout(
-            height=300, margin=dict(l=10, r=10, t=20, b=10),
-            xaxis_title="Година", yaxis_title="МВт·год",
-        )
-        st.markdown("#### Фактичний обсяг споживання за годинами")
-        st.plotly_chart(volume_figure, width="stretch")
-
-    if hourly["hourly_cost"].notna().any():
-        cost_figure = go.Figure(go.Bar(
-            x=hourly["hour"], y=hourly["hourly_cost"], name="Витрати за годину",
-            marker_color=BLUE, hovertemplate="Година %{x}<br>Витрати: %{y:,.2f} грн<extra></extra>",
-        ))
-        cost_figure.update_layout(height=300, margin=dict(l=10, r=10, t=20, b=10), xaxis_title="Година", yaxis_title="грн")
-        st.markdown("#### Фактичні витрати за годинами")
-        st.plotly_chart(cost_figure, width="stretch")
 
     daily_figure = go.Figure()
     daily_figure.add_trace(go.Scatter(x=complete["delivery_date"], y=complete["rdn_daily"], name="РДН, середня за добу", mode="lines+markers", line=dict(color=AMBER, width=2)))
@@ -970,6 +990,7 @@ def _draw_daily_market_brief(
             if brief.percent_change is not None
             else f"{brief.absolute_change:+,.0f} грн/МВт·год"
         ),
+        delta_color="inverse",
     )
     metrics[1].metric(
         "Найбільша зміна",
@@ -979,6 +1000,7 @@ def _draw_daily_market_brief(
             if brief.strongest_segment_change_percent is not None
             else None
         ),
+        delta_color="inverse",
     )
     metrics[2].metric(
         "До 7-денного рівня",
@@ -987,6 +1009,7 @@ def _draw_daily_market_brief(
             if brief.seven_day_change_percent is not None
             else "Немає бази"
         ),
+        delta_color="inverse",
     )
     metrics[3].metric(
         "Обсяг РДН",
@@ -1071,6 +1094,7 @@ def _draw_overview(frame: pd.DataFrame, selected_date: date) -> None:
         "Base",
         f"{indices.base:,.0f} грн/МВт·год",
         f"{delta:+,.0f} до попереднього дня" if delta is not None else None,
+        delta_color="inverse",
     )
     columns[1].metric("Peak · 09–20", f"{indices.peak:,.0f} грн/МВт·год")
     columns[2].metric("Offpeak", f"{indices.offpeak:,.0f} грн/МВт·год")
