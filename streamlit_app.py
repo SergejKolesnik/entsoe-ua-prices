@@ -55,6 +55,10 @@ from market_forecast.persistence import (  # noqa: E402
 )
 from market_forecast.services import aggregate_price_rows_hourly, build_quality_report  # noqa: E402
 from market_forecast.weather_locations import WEATHER_LOCATIONS  # noqa: E402
+from market_forecast.sources.rdn_diff_tariff import (  # noqa: E402
+    add_aggregates,
+    load_comparison_source,
+)
 
 
 KYIV = ZoneInfo("Europe/Kyiv")
@@ -439,6 +443,82 @@ def _daily_summary(frame: pd.DataFrame) -> pd.DataFrame:
         .agg(minimum="min", average="mean", maximum="max")
         .sort_values("delivery_date")
     )
+
+
+@st.cache_data(ttl=900)
+def _load_rdn_diff_tariff() -> pd.DataFrame:
+    """Read the external NZF comparison workbook through its public CSV export."""
+
+    return load_comparison_source()
+
+
+def _draw_rdn_diff_tariff(selected_date: date) -> None:
+    """Compare hourly RDN with the daily factual weighted NZF price."""
+
+    st.markdown("### РДН і дифтариф НЗФ")
+    st.caption(
+        "Джерело НЗФ читається без запису в Google-таблицю. AC — денна "
+        "середньозважена фактична ціна, тому на погодинному графіку вона "
+        "показана як денна горизонтальна лінія."
+    )
+    try:
+        source = _load_rdn_diff_tariff()
+    except Exception as exc:
+        st.error(f"Не вдалося прочитати джерело дифтарифу: {exc}")
+        return
+    if source.empty:
+        st.info("У джерелі немає перевірених денних значень.")
+        return
+
+    daily, monthly = add_aggregates(source)
+    complete = daily.dropna(subset=["rdn_daily", "weighted_nzf"]).copy()
+    if complete.empty:
+        st.warning("Немає спільних денних значень РДН і фактичної ціни НЗФ.")
+        return
+    latest = complete.iloc[-1]
+    metrics = st.columns(4)
+    metrics[0].metric("Днів порівняння", f"{len(complete)}")
+    metrics[1].metric("Середня РДН", f"{complete['rdn_daily'].mean():,.0f} грн/МВт·год".replace(",", " "))
+    metrics[2].metric("Середня НЗФ", f"{complete['weighted_nzf'].mean():,.0f} грн/МВт·год".replace(",", " "))
+    metrics[3].metric("Середня економія", f"{complete['saving_pct'].mean():.1%}")
+
+    available_dates = list(complete["delivery_date"])
+    comparison_date = selected_date if selected_date in available_dates else available_dates[-1]
+    selected_index = available_dates.index(comparison_date)
+    comparison_date = st.selectbox(
+        "День для погодинного профілю",
+        available_dates,
+        index=selected_index,
+        format_func=lambda value: value.strftime("%d.%m.%Y"),
+        key="rdn_diff_tariff_day",
+    )
+    selected = source[source["delivery_date"] == comparison_date].iloc[0]
+    hourly = pd.Series({hour: selected.get(f"rdn_hour_{hour:02d}") for hour in range(24)}, dtype="float64")
+    hourly = hourly.dropna()
+    hourly_figure = go.Figure()
+    hourly_figure.add_trace(go.Scatter(x=hourly.index + 1, y=hourly.values, name="РДН", mode="lines+markers", line=dict(color=AMBER, width=3)))
+    hourly_figure.add_trace(go.Scatter(x=[1, 24], y=[selected["weighted_nzf"], selected["weighted_nzf"]], name="НЗФ, факт за день", mode="lines", line=dict(color=BLUE, width=3, dash="dash")))
+    hourly_figure.update_layout(height=380, margin=dict(l=10, r=10, t=20, b=10), xaxis_title="Година", yaxis_title="грн/МВт·год", legend=dict(orientation="h", y=1.12))
+    st.plotly_chart(hourly_figure, width="stretch")
+
+    daily_figure = go.Figure()
+    daily_figure.add_trace(go.Scatter(x=complete["delivery_date"], y=complete["rdn_daily"], name="РДН, середня за добу", mode="lines+markers", line=dict(color=AMBER, width=2)))
+    daily_figure.add_trace(go.Scatter(x=complete["delivery_date"], y=complete["weighted_nzf"], name="НЗФ, середньозважена факт", mode="lines+markers", line=dict(color=BLUE, width=3)))
+    daily_figure.update_layout(height=390, margin=dict(l=10, r=10, t=20, b=10), xaxis_title="Дата", yaxis_title="грн/МВт·год", legend=dict(orientation="h", y=1.12))
+    st.markdown("#### Порівняння за днями")
+    st.plotly_chart(daily_figure, width="stretch")
+
+    monthly_figure = go.Figure()
+    monthly_figure.add_trace(go.Scatter(x=monthly["month"], y=monthly["rdn_daily"], name="РДН, середнє за дні", mode="lines+markers", line=dict(color=AMBER, width=3)))
+    monthly_figure.add_trace(go.Scatter(x=monthly["month"], y=monthly["weighted_nzf"], name="НЗФ, середнє за дні", mode="lines+markers", line=dict(color=BLUE, width=3)))
+    monthly_figure.update_layout(height=390, margin=dict(l=10, r=10, t=20, b=10), xaxis_title="Місяць", yaxis_title="грн/МВт·год", legend=dict(orientation="h", y=1.12))
+    st.markdown("#### Порівняння за місяцями")
+    st.plotly_chart(monthly_figure, width="stretch")
+    display = complete[["delivery_date", "rdn_daily", "weighted_nzf", "saving_pct"]].rename(columns={
+        "delivery_date": "Дата", "rdn_daily": "РДН, грн/МВт·год", "weighted_nzf": "НЗФ факт, грн/МВт·год", "saving_pct": "Економія",
+    })
+    st.dataframe(display, width="stretch", hide_index=True, column_config={"Економія": st.column_config.NumberColumn(format="%.1%")})
+    st.caption("Місячні значення — просте середнє доступних денних значень; без фактичного погодинного обсягу це не є обсягозваженим місячним індексом.")
 
 
 @st.cache_data(ttl=60)
@@ -2441,6 +2521,7 @@ def main() -> None:
     tab_labels = [
         "Огляд",
         "Тенденції",
+        "Дифтариф НЗФ",
         "Фактори ціни",
         "ВДР",
         "Ринок газу",
@@ -2450,7 +2531,7 @@ def main() -> None:
     if show_technical:
         tab_labels.append("Технічний стан")
     tabs = st.tabs(tab_labels)
-    overview, trends, drivers, intraday_market, gas_market, forecast, neighbors = tabs[:7]
+    overview, trends, diff_tariff, drivers, intraday_market, gas_market, forecast, neighbors = tabs[:8]
     with overview:
         _draw_daily_market_brief(
             settings.database_path, frame, date_from, date_to, selected_date
@@ -2460,6 +2541,8 @@ def main() -> None:
     with trends:
         full_history = _load_prices(str(settings.database_path), earliest, latest)
         _draw_trends(frame, full_history, selected_date)
+    with diff_tariff:
+        _draw_rdn_diff_tariff(selected_date)
     with drivers:
         _draw_price_drivers(
             settings.database_path, frame, date_from, date_to, selected_date
@@ -2476,7 +2559,7 @@ def main() -> None:
     with neighbors:
         _draw_neighbor_markets(settings.database_path, date_from, date_to, selected_date)
     if show_technical:
-        with tabs[6]:
+        with tabs[7]:
             st.markdown("### Якість і повнота даних")
             _draw_quality(settings.database_path, date_from, date_to)
             st.divider()

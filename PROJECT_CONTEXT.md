@@ -1,6 +1,6 @@
 # Ukraine Energy Market Forecast — Project Context
 
-Last updated: 2026-09-16
+Last updated: 2026-09-24
 
 ## Purpose
 
@@ -34,6 +34,7 @@ Phase 5: publication foundation. Durable ingestion, automated refresh, analytics
 - Quality reporting compares each Kyiv delivery date against its expected 23/24/25 hourly periods and returns non-zero for incomplete coverage.
 - ENTSO-E HTTP errors are sanitized before logging so request URLs cannot expose the security token.
 - The Streamlit dashboard reads the same SQLite repository and is presentation-only: it does not collect data or mutate the database.
+- The NZF differential-tariff comparison tab is additive and read-only: it reads the configured public Google Sheets CSV export, parses monthly RDN hourly values plus daily AC weighted factual price, and never writes to the source workbook or Neon/SQLite.
 - The forecast tab compares a same-weekday median against previous-day persistence on identical chronological cutoffs and displays only the lower-MAE baseline.
 - Forecast timestamps always start after the latest published DAM delivery day. The P80 absolute-error band is an empirical diagnostic, not a guaranteed confidence interval.
 - A local staged backfill validated 366/366 delivery days from 2025-08-19 through 2026-08-19 with 8,784/8,784 expected periods, including the real 25-hour and 23-hour DST days. The SQLite/raw dataset remains local and Git-ignored.
