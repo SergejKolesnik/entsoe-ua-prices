@@ -487,7 +487,11 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
     if complete.empty:
         st.warning("Немає спільних денних значень РДН і фактичної ціни НЗФ.")
         return
-    preferred_date = selected_date - timedelta(days=1)
+    # The default must follow the real calendar day, even if the source or
+    # sidebar already contains a future delivery date.
+    today = datetime.now(ZoneInfo("Europe/Kyiv")).date()
+    reference_date = min(selected_date, today)
+    preferred_date = reference_date - timedelta(days=1)
     eligible = complete[complete["delivery_date"] <= preferred_date]
     if eligible.empty:
         eligible = complete
