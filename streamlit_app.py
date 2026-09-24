@@ -516,12 +516,16 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
     available_dates = list(eligible["delivery_date"])
     comparison_date = analysis_date if analysis_date in available_dates else available_dates[-1]
     selected_index = available_dates.index(comparison_date)
+    selector_key = f"rdn_diff_tariff_day_{analysis_date.isoformat()}"
+    if st.session_state.get("_rdn_diff_default_key") != selector_key:
+        st.session_state[selector_key] = comparison_date
+        st.session_state["_rdn_diff_default_key"] = selector_key
     comparison_date = st.selectbox(
         "Завершений день для погодинного аналізу",
         available_dates,
         index=selected_index,
         format_func=lambda value: value.strftime("%d.%m.%Y"),
-        key=f"rdn_diff_tariff_day_{analysis_date.isoformat()}",
+        key=selector_key,
     )
     selected = source[source["delivery_date"] == comparison_date].iloc[0]
     hourly = pd.DataFrame({
