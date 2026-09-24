@@ -88,7 +88,11 @@ jobs:
         shell: bash
         run: |
           set +e
-          python -m market_forecast.cli refresh-operator
+          if [ -n "${{ inputs.delivery_date }}" ]; then
+            python -m market_forecast.cli refresh-operator --date "${{ inputs.delivery_date }}"
+          else
+            python -m market_forecast.cli refresh-operator
+          fi
           status=$?
           if [ "$status" -eq 2 ]; then
             echo "The next delivery day is not published yet."
