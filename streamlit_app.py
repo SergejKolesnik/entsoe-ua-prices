@@ -59,6 +59,7 @@ from market_forecast.sources.rdn_diff_tariff import (  # noqa: E402
     add_aggregates,
     load_comparison_source,
 )
+from market_forecast.sources.self_generation import load_self_generation_source  # noqa: E402
 
 
 KYIV = ZoneInfo("Europe/Kyiv")
@@ -67,6 +68,8 @@ AMBER = "#ffb800"
 BLUE = "#378add"
 VOLUME_BLUE = "#4c9aff"
 COST_GREEN = "#58c68d"
+SOLAR_YELLOW = "#f5c451"
+GPU_PURPLE = "#b58cff"
 RED = "#ef6a5b"
 MUTED = "#7f8a9a"
 MARKET_COLORS = {
@@ -454,6 +457,13 @@ def _load_rdn_diff_tariff(cache_schema: str = "hourly-volume-v2") -> pd.DataFram
     return load_comparison_source()
 
 
+@st.cache_data(ttl=900)
+def _load_self_generation(cache_schema: str = "hourly-fact-v1") -> pd.DataFrame:
+    """Read factual hourly solar and GPU data from public Sheets exports."""
+
+    return load_self_generation_source()
+
+
 def _draw_rdn_diff_tariff(selected_date: date) -> None:
     """Compare hourly RDN, factual NZF volume, and weighted daily price."""
 
@@ -532,9 +542,9 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
         yaxis="y",
     ))
     hourly_figure.add_trace(go.Bar(
-        x=hourly["hour"], y=hourly["actual_volume"], name="Фактичний обсяг",
+        x=hourly["hour"], y=hourly["actual_volume"], name="Купівля з мережі",
         marker_color=VOLUME_BLUE,
-        hovertemplate="Година %{x}<br>Фактичний обсяг: %{y:,.2f} МВт·год<extra></extra>",
+        hovertemplate="Година %{x}<br>Купівля з мережі: %{y:,.2f} МВт·год<extra></extra>",
         yaxis="y2",
     ))
     hourly_figure.add_trace(go.Bar(
@@ -550,6 +560,76 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
         legend=dict(orientation="h", y=1.12), barmode="group", showlegend=True,
     )
     st.plotly_chart(hourly_figure, width="stretch")
+
+    try:
+        self_generation = _load_self_generation()
+        self_day = self_generation[self_generation["delivery_date"] == comparison_date]
+    except Exception as exc:
+        self_day = pd.DataFrame()
+        st.warning(f"Не вдалося прочитати погодинну власну генерацію: {exc}")
+    if not self_day.empty:
+        generation = self_day.iloc[0]
+        for source, prefix in (("solar_mwh", "solar_hour"), ("gpu_mwh", "gpu_hour")):
+            hourly[source] = [generation.get(f"{prefix}_{hour:02d}") for hour in range(24)]
+        hourly["solar_mwh"] = pd.to_numeric(hourly["solar_mwh"], errors="coerce").fillna(0)
+        hourly["gpu_mwh"] = pd.to_numeric(hourly["gpu_mwh"], errors="coerce").fillna(0)
+        hourly["own_generation_mwh"] = hourly["solar_mwh"] + hourly["gpu_mwh"]
+        hourly["total_consumption_mwh"] = hourly["actual_volume"].fillna(0) + hourly["own_generation_mwh"]
+        hourly["gross_avoided_cost"] = hourly["own_generation_mwh"] * hourly["rdn_price"]
+
+        total_consumption = hourly["total_consumption_mwh"].sum()
+        own_generation = hourly["own_generation_mwh"].sum()
+        gross_avoided_cost = hourly["gross_avoided_cost"].sum()
+        gpu_effect_columns = [f"gpu_economic_effect_hour_{hour:02d}" for hour in range(24)]
+        gpu_effect = sum(
+            float(value)
+            for column in gpu_effect_columns
+            for value in [generation.get(column)]
+            if pd.notna(value)
+        )
+        metrics = st.columns(4)
+        metrics[0].metric("Повне споживання", f"{total_consumption:,.1f} МВт·год".replace(",", " "))
+        metrics[1].metric("Власна генерація", f"{own_generation:,.1f} МВт·год".replace(",", " "))
+        metrics[2].metric("Частка власної генерації", f"{own_generation / total_consumption:.1%}" if total_consumption else "—")
+        metrics[3].metric("Уникнені витрати за РДН", f"{gross_avoided_cost:,.0f} грн".replace(",", " "))
+        st.caption(
+            (
+                f"ГПУ: економічний ефект за джерелом {gpu_effect:,.0f} грн; "
+                "показник включає передачу згідно з розрахунком у таблиці."
+            ).replace(",", " ")
+        )
+
+        structure = go.Figure()
+        structure.add_trace(go.Bar(
+            x=hourly["hour"], y=hourly["actual_volume"], name="Мережа",
+            marker_color=VOLUME_BLUE,
+            hovertemplate="Година %{x}<br>Мережа: %{y:,.2f} МВт·год<extra></extra>",
+        ))
+        structure.add_trace(go.Bar(
+            x=hourly["hour"], y=hourly["solar_mwh"], name="СЕС",
+            marker_color=SOLAR_YELLOW,
+            hovertemplate="Година %{x}<br>СЕС: %{y:,.2f} МВт·год<extra></extra>",
+        ))
+        structure.add_trace(go.Bar(
+            x=hourly["hour"], y=hourly["gpu_mwh"], name="ГПУ",
+            marker_color=GPU_PURPLE,
+            customdata=hourly[["gross_avoided_cost"]],
+            hovertemplate="Година %{x}<br>ГПУ: %{y:,.2f} МВт·год<br>Уникнені витрати власної генерації: %{customdata[0]:,.0f} грн<extra></extra>",
+        ))
+        structure.add_trace(go.Scatter(
+            x=hourly["hour"], y=hourly["rdn_price"], name="РДН",
+            mode="lines+markers", line=dict(color=AMBER, width=3), yaxis="y2",
+        ))
+        structure.update_layout(
+            height=500, margin=dict(l=10, r=95, t=25, b=10),
+            xaxis=dict(title="Година"),
+            yaxis=dict(title="Споживання, МВт·год"),
+            yaxis2=dict(title="РДН, грн/МВт·год", overlaying="y", side="right"),
+            legend=dict(orientation="h", y=1.12), barmode="stack", showlegend=True,
+        )
+        st.markdown("#### Повне споживання та власна генерація")
+        st.plotly_chart(structure, width="stretch")
+        st.caption("СЕС і ГПУ — фактична погодинна генерація; планові значення СЕС у розрахунок не потрапляють.")
 
     daily_figure = go.Figure()
     daily_figure.add_trace(go.Scatter(x=complete["delivery_date"], y=complete["rdn_daily"], name="РДН, середня за добу", mode="lines+markers", line=dict(color=AMBER, width=2)))
