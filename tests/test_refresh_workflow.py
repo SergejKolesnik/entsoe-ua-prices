@@ -26,6 +26,14 @@ class RefreshWorkflowTests(unittest.TestCase):
         self.assertIn('month=$(date +%-m)', workflow)
         self.assertNotIn("GOOGLE", workflow)
 
+    def test_operator_refresh_retries_after_evening_gate_closes(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn('- cron: "55 18-23 * * *"', workflow)
+        self.assertIn('- cron: "0 0 * * *"', workflow)
+        self.assertIn("github.event.schedule == '55 18-23 * * *'", workflow)
+        self.assertIn("github.event.schedule == '0 0 * * *'", workflow)
+
     def test_flow_backfill_is_bounded_and_secret_based(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
 

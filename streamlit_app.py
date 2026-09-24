@@ -453,7 +453,7 @@ def _load_rdn_diff_tariff() -> pd.DataFrame:
 
 
 def _draw_rdn_diff_tariff(selected_date: date) -> None:
-    """Compare hourly RDN with the daily factual weighted NZF price."""
+    """Compare hourly RDN, factual NZF volume, and weighted daily price."""
 
     st.markdown("### РДН і дифтариф НЗФ")
     st.caption(
@@ -511,18 +511,25 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
         customdata=hourly[["actual_volume", "hourly_cost"]],
         hovertemplate="Година %{x}<br>РДН: %{y:,.0f} грн/МВт·год<br>Обсяг: %{customdata[0]:,.2f}<br>Витрати: %{customdata[1]:,.2f} грн<extra></extra>",
     ))
-    if hourly["actual_volume"].notna().any():
-        hourly_figure.add_trace(go.Bar(
-            x=hourly["hour"], y=hourly["actual_volume"], name="Фактичний обсяг",
-            marker_color="rgba(55,138,221,.38)", yaxis="y2",
-            hovertemplate="Година %{x}<br>Фактичний обсяг: %{y:,.2f}<extra></extra>",
-        ))
     hourly_figure.update_layout(
         height=410, margin=dict(l=10, r=10, t=20, b=10), xaxis_title="Година",
-        yaxis=dict(title="грн/МВт·год"), yaxis2=dict(title="Фактичний обсяг", overlaying="y", side="right"),
+        yaxis=dict(title="грн/МВт·год"),
         legend=dict(orientation="h", y=1.12), barmode="overlay",
     )
     st.plotly_chart(hourly_figure, width="stretch")
+
+    if hourly["actual_volume"].notna().any():
+        volume_figure = go.Figure(go.Bar(
+            x=hourly["hour"], y=hourly["actual_volume"], name="Фактичний обсяг",
+            marker_color="rgba(55,138,221,.72)",
+            hovertemplate="Година %{x}<br>Фактичний обсяг: %{y:,.2f} МВт·год<extra></extra>",
+        ))
+        volume_figure.update_layout(
+            height=300, margin=dict(l=10, r=10, t=20, b=10),
+            xaxis_title="Година", yaxis_title="МВт·год",
+        )
+        st.markdown("#### Фактичний обсяг споживання за годинами")
+        st.plotly_chart(volume_figure, width="stretch")
 
     if hourly["hourly_cost"].notna().any():
         cost_figure = go.Figure(go.Bar(
