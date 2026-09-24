@@ -545,7 +545,7 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
         xaxis=dict(title="Година"),
         yaxis=dict(title="RDN, грн/МВт·год", titlefont=dict(color=AMBER), tickfont=dict(color=AMBER)),
         yaxis2=dict(title="Обсяг, МВт·год", titlefont=dict(color=BLUE), tickfont=dict(color=BLUE), overlaying="y", side="right"),
-        yaxis3=dict(title="Витрати, грн", titlefont=dict(color="#8bb8ff"), tickfont=dict(color="#8bb8ff"), overlaying="y", side="right", position=1.08),
+        yaxis3=dict(title="Витрати, грн", titlefont=dict(color="#8bb8ff"), tickfont=dict(color="#8bb8ff"), overlaying="y", side="right", anchor="free", position=0.98),
         legend=dict(orientation="h", y=1.12), barmode="group", showlegend=True,
     )
     st.plotly_chart(hourly_figure, width="stretch")
