@@ -535,21 +535,18 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
         mode="lines+markers", line=dict(color=AMBER, width=3),
         customdata=hourly[["actual_volume", "hourly_cost"]],
         hovertemplate="Година %{x}<br>РДН: %{y:,.0f} грн/МВт·год<br>Обсяг: %{customdata[0]:,.2f}<br>Витрати: %{customdata[1]:,.2f} грн<extra></extra>",
-        row=1, col=1,
-    ))
+    ), row=1, col=1)
     hourly_figure.add_trace(go.Bar(
         x=hourly["hour"], y=hourly["actual_volume"], name="Фактичний обсяг",
         marker_color="rgba(55,138,221,.72)",
         hovertemplate="Година %{x}<br>Фактичний обсяг: %{y:,.2f} МВт·год<extra></extra>",
         showlegend=False,
-        row=2, col=1,
-    ))
+    ), row=2, col=1)
     hourly_figure.add_trace(go.Bar(
         x=hourly["hour"], y=hourly["hourly_cost"], name="Витрати за годину",
         marker_color=BLUE, hovertemplate="Година %{x}<br>Витрати: %{y:,.2f} грн<extra></extra>",
         showlegend=False,
-        row=3, col=1,
-    ))
+    ), row=3, col=1)
     hourly_figure.update_yaxes(title_text="грн/МВт·год", row=1, col=1)
     hourly_figure.update_yaxes(title_text="МВт·год", row=2, col=1)
     hourly_figure.update_yaxes(title_text="грн", row=3, col=1)
