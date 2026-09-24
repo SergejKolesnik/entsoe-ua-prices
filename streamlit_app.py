@@ -458,8 +458,8 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
     st.markdown("### РДН і дифтариф НЗФ")
     st.caption(
         "Джерело НЗФ читається без запису в Google-таблицю. AC — денна "
-        "середньозважена фактична ціна, тому на погодинному графіку вона "
-        "показана як денна горизонтальна лінія."
+        "середньозважена фактична ціна. Погодинний графік показує ціну РДН, "
+        "фактичний обсяг і фактичні витрати за годину."
     )
     try:
         source = _load_rdn_diff_tariff()
@@ -493,13 +493,40 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
         key="rdn_diff_tariff_day",
     )
     selected = source[source["delivery_date"] == comparison_date].iloc[0]
-    hourly = pd.Series({hour: selected.get(f"rdn_hour_{hour:02d}") for hour in range(24)}, dtype="float64")
-    hourly = hourly.dropna()
+    hourly = pd.DataFrame({
+        "hour": range(1, 25),
+        "rdn_price": [selected.get(f"rdn_hour_{hour:02d}") for hour in range(24)],
+        "actual_volume": [selected.get(f"actual_volume_hour_{hour:02d}") for hour in range(24)],
+        "hourly_cost": [selected.get(f"cost_hour_{hour:02d}") for hour in range(24)],
+    }).dropna(subset=["rdn_price"])
     hourly_figure = go.Figure()
-    hourly_figure.add_trace(go.Scatter(x=hourly.index + 1, y=hourly.values, name="РДН", mode="lines+markers", line=dict(color=AMBER, width=3)))
-    hourly_figure.add_trace(go.Scatter(x=[1, 24], y=[selected["weighted_nzf"], selected["weighted_nzf"]], name="НЗФ, факт за день", mode="lines", line=dict(color=BLUE, width=3, dash="dash")))
-    hourly_figure.update_layout(height=380, margin=dict(l=10, r=10, t=20, b=10), xaxis_title="Година", yaxis_title="грн/МВт·год", legend=dict(orientation="h", y=1.12))
+    hourly_figure.add_trace(go.Scatter(
+        x=hourly["hour"], y=hourly["rdn_price"], name="РДН, грн/МВт·год",
+        mode="lines+markers", line=dict(color=AMBER, width=3), yaxis="y",
+        customdata=hourly[["actual_volume", "hourly_cost"]],
+        hovertemplate="Година %{x}<br>РДН: %{y:,.0f} грн/МВт·год<br>Обсяг: %{customdata[0]:,.2f}<br>Витрати: %{customdata[1]:,.2f} грн<extra></extra>",
+    ))
+    if hourly["actual_volume"].notna().any():
+        hourly_figure.add_trace(go.Bar(
+            x=hourly["hour"], y=hourly["actual_volume"], name="Фактичний обсяг",
+            marker_color="rgba(55,138,221,.38)", yaxis="y2",
+            hovertemplate="Година %{x}<br>Фактичний обсяг: %{y:,.2f}<extra></extra>",
+        ))
+    hourly_figure.update_layout(
+        height=410, margin=dict(l=10, r=10, t=20, b=10), xaxis_title="Година",
+        yaxis=dict(title="грн/МВт·год"), yaxis2=dict(title="Фактичний обсяг", overlaying="y", side="right"),
+        legend=dict(orientation="h", y=1.12), barmode="overlay",
+    )
     st.plotly_chart(hourly_figure, width="stretch")
+
+    if hourly["hourly_cost"].notna().any():
+        cost_figure = go.Figure(go.Bar(
+            x=hourly["hour"], y=hourly["hourly_cost"], name="Витрати за годину",
+            marker_color=BLUE, hovertemplate="Година %{x}<br>Витрати: %{y:,.2f} грн<extra></extra>",
+        ))
+        cost_figure.update_layout(height=300, margin=dict(l=10, r=10, t=20, b=10), xaxis_title="Година", yaxis_title="грн")
+        st.markdown("#### Фактичні витрати за годинами")
+        st.plotly_chart(cost_figure, width="stretch")
 
     daily_figure = go.Figure()
     daily_figure.add_trace(go.Scatter(x=complete["delivery_date"], y=complete["rdn_daily"], name="РДН, середня за добу", mode="lines+markers", line=dict(color=AMBER, width=2)))
