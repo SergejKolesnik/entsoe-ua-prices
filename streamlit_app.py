@@ -538,14 +538,13 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
     hourly_figure.add_trace(go.Bar(
         x=hourly["hour"], y=hourly["hourly_cost"], name="Витрати за годину",
         marker_color=BLUE, hovertemplate="Година %{x}<br>Витрати: %{y:,.2f} грн<extra></extra>",
-        yaxis="y3",
+        yaxis="y2",
     ))
     hourly_figure.update_layout(
         height=520, margin=dict(l=10, r=95, t=25, b=10),
         xaxis=dict(title="Година"),
-        yaxis=dict(title="RDN, грн/МВт·год", titlefont=dict(color=AMBER), tickfont=dict(color=AMBER)),
-        yaxis2=dict(title="Обсяг, МВт·год", titlefont=dict(color=BLUE), tickfont=dict(color=BLUE), overlaying="y", side="right"),
-        yaxis3=dict(title="Витрати, грн", titlefont=dict(color="#8bb8ff"), tickfont=dict(color="#8bb8ff"), overlaying="y", side="right", anchor="free", position=0.98),
+        yaxis=dict(title="RDN, грн/МВт·год"),
+        yaxis2=dict(title="Обсяг / витрати", overlaying="y", side="right"),
         legend=dict(orientation="h", y=1.12), barmode="group", showlegend=True,
     )
     st.plotly_chart(hourly_figure, width="stretch")
