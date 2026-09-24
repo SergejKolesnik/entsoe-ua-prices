@@ -33,6 +33,7 @@ class RefreshWorkflowTests(unittest.TestCase):
         self.assertIn('- cron: "0 0 * * *"', workflow)
         self.assertIn("github.event.schedule == '55 18-23 * * *'", workflow)
         self.assertIn("github.event.schedule == '0 0 * * *'", workflow)
+        self.assertIn('refresh-operator --date "${{ inputs.delivery_date }}"', workflow)
 
     def test_flow_backfill_is_bounded_and_secret_based(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
