@@ -499,6 +499,11 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
         "actual_volume": [selected.get(f"actual_volume_hour_{hour:02d}") for hour in range(24)],
         "hourly_cost": [selected.get(f"cost_hour_{hour:02d}") for hour in range(24)],
     }).dropna(subset=["rdn_price"])
+    # Keep the visual complete even if an older cached/source row has no
+    # explicit cost block: hourly factual cost is volume * RDN / 1000.
+    hourly["hourly_cost"] = hourly["hourly_cost"].fillna(
+        hourly["actual_volume"] * hourly["rdn_price"] / 1000
+    )
     hourly_figure = go.Figure()
     hourly_figure.add_trace(go.Scatter(
         x=hourly["hour"], y=hourly["rdn_price"], name="РДН, грн/МВт·год",
