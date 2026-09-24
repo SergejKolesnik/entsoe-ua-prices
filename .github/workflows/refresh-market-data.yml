@@ -4,6 +4,8 @@ on:
   schedule:
     - cron: "15 14 * * *"
       timezone: "Europe/Kyiv"
+    - cron: "30 14-17 * * *"
+      timezone: "Europe/Kyiv"
     - cron: "0 15,16,17 * * *"
       timezone: "Europe/Kyiv"
     - cron: "20 17 * * *"
@@ -66,7 +68,8 @@ jobs:
       github.event_name == 'workflow_dispatch' &&
       (inputs.task == 'all' || inputs.task == 'operator') ||
       github.event_name == 'schedule' &&
-      (github.event.schedule == '15 14 * * *' || github.event.schedule == '0 15,16,17 * * *' ||
+      (github.event.schedule == '15 14 * * *' || github.event.schedule == '30 14-17 * * *' ||
+       github.event.schedule == '0 15,16,17 * * *' ||
        github.event.schedule == '55 18-23 * * *' || github.event.schedule == '0 0 * * *')
     runs-on: ubuntu-latest
     timeout-minutes: 10

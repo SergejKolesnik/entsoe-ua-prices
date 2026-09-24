@@ -17,6 +17,7 @@ class RefreshWorkflowTests(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
         self.assertIn('- cron: "25 17 * * *"', workflow)
+        self.assertIn('- cron: "30 14-17 * * *"', workflow)
         self.assertIn("- intraday", workflow)
         self.assertIn("inputs.task == 'intraday'", workflow)
         self.assertIn("github.event.schedule == '25 17 * * *'", workflow)

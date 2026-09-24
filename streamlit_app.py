@@ -65,6 +65,8 @@ KYIV = ZoneInfo("Europe/Kyiv")
 SOURCE = "operator_market"
 AMBER = "#ffb800"
 BLUE = "#378add"
+VOLUME_BLUE = "#4c9aff"
+COST_GREEN = "#58c68d"
 RED = "#ef6a5b"
 MUTED = "#7f8a9a"
 MARKET_COLORS = {
@@ -531,13 +533,13 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
     ))
     hourly_figure.add_trace(go.Bar(
         x=hourly["hour"], y=hourly["actual_volume"], name="Фактичний обсяг",
-        marker_color="rgba(55,138,221,.72)",
+        marker_color=VOLUME_BLUE,
         hovertemplate="Година %{x}<br>Фактичний обсяг: %{y:,.2f} МВт·год<extra></extra>",
         yaxis="y2",
     ))
     hourly_figure.add_trace(go.Bar(
         x=hourly["hour"], y=hourly["hourly_cost"], name="Витрати за годину",
-        marker_color=BLUE, hovertemplate="Година %{x}<br>Витрати: %{y:,.2f} грн<extra></extra>",
+        marker_color=COST_GREEN, hovertemplate="Година %{x}<br>Витрати: %{y:,.2f} грн<extra></extra>",
         yaxis="y2",
     ))
     hourly_figure.update_layout(
