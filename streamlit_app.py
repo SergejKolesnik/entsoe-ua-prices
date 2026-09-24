@@ -11,7 +11,6 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -522,38 +521,32 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
     hourly["hourly_cost"] = hourly["hourly_cost"].fillna(
         hourly["actual_volume"] * hourly["rdn_price"] / 1000
     )
-    hourly_figure = make_subplots(
-        rows=3,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.08,
-        subplot_titles=("Ціна РДН", "Фактичний обсяг споживання", "Фактичні витрати"),
-        row_heights=[0.46, 0.27, 0.27],
-    )
+    hourly_figure = go.Figure()
     hourly_figure.add_trace(go.Scatter(
         x=hourly["hour"], y=hourly["rdn_price"], name="РДН, грн/МВт·год",
         mode="lines+markers", line=dict(color=AMBER, width=3),
         customdata=hourly[["actual_volume", "hourly_cost"]],
         hovertemplate="Година %{x}<br>РДН: %{y:,.0f} грн/МВт·год<br>Обсяг: %{customdata[0]:,.2f}<br>Витрати: %{customdata[1]:,.2f} грн<extra></extra>",
-    ), row=1, col=1)
+        yaxis="y",
+    ))
     hourly_figure.add_trace(go.Bar(
         x=hourly["hour"], y=hourly["actual_volume"], name="Фактичний обсяг",
         marker_color="rgba(55,138,221,.72)",
         hovertemplate="Година %{x}<br>Фактичний обсяг: %{y:,.2f} МВт·год<extra></extra>",
-        showlegend=False,
-    ), row=2, col=1)
+        yaxis="y2",
+    ))
     hourly_figure.add_trace(go.Bar(
         x=hourly["hour"], y=hourly["hourly_cost"], name="Витрати за годину",
         marker_color=BLUE, hovertemplate="Година %{x}<br>Витрати: %{y:,.2f} грн<extra></extra>",
-        showlegend=False,
-    ), row=3, col=1)
-    hourly_figure.update_yaxes(title_text="грн/МВт·год", row=1, col=1)
-    hourly_figure.update_yaxes(title_text="МВт·год", row=2, col=1)
-    hourly_figure.update_yaxes(title_text="грн", row=3, col=1)
-    hourly_figure.update_xaxes(title_text="Година", row=3, col=1)
+        yaxis="y3",
+    ))
     hourly_figure.update_layout(
-        height=820, margin=dict(l=10, r=10, t=55, b=10),
-        legend=dict(orientation="h", y=1.04), showlegend=True,
+        height=520, margin=dict(l=10, r=95, t=25, b=10),
+        xaxis=dict(title="Година"),
+        yaxis=dict(title="RDN, грн/МВт·год", titlefont=dict(color=AMBER), tickfont=dict(color=AMBER)),
+        yaxis2=dict(title="Обсяг, МВт·год", titlefont=dict(color=BLUE), tickfont=dict(color=BLUE), overlaying="y", side="right"),
+        yaxis3=dict(title="Витрати, грн", titlefont=dict(color="#8bb8ff"), tickfont=dict(color="#8bb8ff"), overlaying="y", side="right", position=1.08),
+        legend=dict(orientation="h", y=1.12), barmode="group", showlegend=True,
     )
     st.plotly_chart(hourly_figure, width="stretch")
 
