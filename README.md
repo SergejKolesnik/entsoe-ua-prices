@@ -262,6 +262,9 @@ section according to its own `status`. Full field semantics are documented in
 
 ## Data-source responsibilities
 
+The maintained inventory of external tables, APIs, expected worksheet names, and
+audit checks is in [`docs/data-sources.md`](docs/data-sources.md).
+
 ## Internal gas procurement import
 
 ## Anonymous usage analytics
