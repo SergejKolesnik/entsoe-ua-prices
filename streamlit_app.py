@@ -229,7 +229,10 @@ def _header(
     latest_date: date,
     latest_attempt: tuple[date, datetime, str, int, str | None] | None,
 ) -> None:
-    expected_date = datetime.now(KYIV).date() + timedelta(days=1)
+    # The header reports whether today's published RDN prices are available.
+    # Tomorrow's forecast publication is a separate concern and must not make
+    # an already current data set look unpublished.
+    expected_date = datetime.now(KYIV).date()
     if latest_date >= expected_date:
         status_text = "Дані актуальні"
         status_color = "#58c68d"
