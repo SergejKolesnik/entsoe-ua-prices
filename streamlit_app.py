@@ -2067,6 +2067,7 @@ def _draw_price_drivers(
         "Середня ціна, грн/МВт·год",
         f"{comparison['current_average']:,.0f}",
         f"{percent_change:+.1f}% до {comparison['previous_date'].strftime('%d.%m')}",
+        delta_color="inverse",
     )
     metrics[1].metric(
         "Зміна, грн/МВт·год",
@@ -2093,6 +2094,7 @@ def _draw_price_drivers(
             if comparison["seven_day_average"] is not None
             else None
         ),
+        delta_color="inverse",
     )
 
     st.markdown("#### Де саме відбулася зміна")
