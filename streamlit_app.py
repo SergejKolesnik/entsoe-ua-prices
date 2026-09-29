@@ -60,6 +60,7 @@ from market_forecast.sources.rdn_diff_tariff import (  # noqa: E402
     load_comparison_source,
 )
 from market_forecast.sources.self_generation import load_self_generation_source  # noqa: E402
+from market_forecast.sources.system_status import fetch_telegram_channel  # noqa: E402
 
 
 KYIV = ZoneInfo("Europe/Kyiv")
@@ -89,6 +90,8 @@ GAS_MARKET_CACHE_VERSION = 1
 ENTSOE_OUTAGES_URL = "https://transparency.entsoe.eu/outage-domain/r2/unavailabilityOfProductionAndGenerationUnits/show"
 UKRENERGO_TELEGRAM_URL = "https://t.me/Ukrenergo"
 ENERGOATOM_NEWS_URL = "https://energoatom.com.ua/news"
+UKRENERGO_FEED = "ukrenergo"
+ENERGOATOM_FEED = "energoatom_ua"
 
 
 def _anonymous_analytics(settings: Settings) -> None:
@@ -2422,6 +2425,24 @@ def _draw_generation_status() -> None:
     source_columns[0].link_button("ENTSO-E: ремонти та доступність", ENTSOE_OUTAGES_URL, width="stretch")
     source_columns[1].link_button("Укренерго: оперативні повідомлення", UKRENERGO_TELEGRAM_URL, width="stretch")
     source_columns[2].link_button("Енергоатом: новини блоків", ENERGOATOM_NEWS_URL, width="stretch")
+    st.markdown("#### Останні офіційні повідомлення")
+    feed_columns = st.columns(2)
+    for column, channel, label in [
+        (feed_columns[0], UKRENERGO_FEED, "Укренерго"),
+        (feed_columns[1], ENERGOATOM_FEED, "Енергоатом"),
+    ]:
+        try:
+            items = fetch_telegram_channel(channel)
+        except Exception:
+            items = []
+        with column:
+            st.markdown(f"**{label} · Telegram**")
+            if not items:
+                st.caption("Стрічка тимчасово недоступна. Відкрийте офіційне джерело вище.")
+            else:
+                for item in items[:5]:
+                    published = item.published_at.astimezone(KYIV).strftime("%d.%m.%Y %H:%M") if item.published_at else ""
+                    st.markdown(f"[{published} — {item.title}]({item.url})")
     events = pd.DataFrame([
         {
             "Тип події": "Плановий ремонт",
