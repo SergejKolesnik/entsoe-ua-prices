@@ -159,6 +159,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Validate public gas-market indicators; write only with --write.",
     )
     gas_indices.add_argument("--write", action="store_true")
+    gas_history = subparsers.add_parser(
+        "import-gas-history",
+        help="Backfill official UEEX daily margin and monthly gas indicators; write only with --write.",
+    )
+    gas_history.add_argument("--from", required=True, type=date.fromisoformat, dest="date_from")
+    gas_history.add_argument("--to", required=True, type=date.fromisoformat, dest="date_to")
+    gas_history.add_argument("--month", required=True, type=date.fromisoformat, dest="month")
+    gas_history.add_argument("--write", action="store_true")
     return parser
 
 
@@ -230,6 +238,66 @@ def main(argv: list[str] | None = None) -> int:
                     "unsupported_vat_rows": result.unsupported_vat_rows,
                 }
                 for source, result in parsed
+            },
+        }, default=str))
+        return 0
+    if args.command == "import-gas-history":
+        from datetime import datetime, timezone
+
+        from market_forecast.config import Settings
+        from market_forecast.parsers.gas_indices import parse_ueex, parse_ueex_margin
+        from market_forecast.persistence import RawArtifactStore, create_market_repository
+        from market_forecast.sources.gas_indices import (
+            fetch_ueex_margin_for_date, fetch_ueex_monthly_for_month,
+        )
+
+        if args.date_to < args.date_from:
+            raise SystemExit("--to must not precede --from")
+        if (args.date_to - args.date_from).days > 31:
+            raise SystemExit("Historical gas import is limited to 32 calendar days per run")
+        if args.month.day != 1:
+            raise SystemExit("--month must be the first day of a month")
+
+        settings = Settings.from_environment()
+        artifact_store = RawArtifactStore(settings.raw_data_directory)
+        retrieved_at = datetime.now(timezone.utc)
+        observations = []
+        available_days = []
+        missing_days = []
+        for offset in range((args.date_to - args.date_from).days + 1):
+            gas_day = args.date_from.fromordinal(args.date_from.toordinal() + offset)
+            raw = fetch_ueex_margin_for_date(gas_day.isoformat())
+            artifact_store.save(raw.content, "gas-ueex-margin-history", gas_day, "raw")
+            if b"zero-result" in raw.content or "Відсутні результати".encode("utf-8") in raw.content:
+                missing_days.append(gas_day.isoformat())
+                continue
+            result = parse_ueex_margin(raw, retrieved_at, historical=True)
+            observations.extend(result.observations)
+            available_days.append(gas_day.isoformat())
+
+        monthly_raw = fetch_ueex_monthly_for_month(args.month)
+        artifact_store.save(monthly_raw.content, "gas-ueex-monthly-history", args.month, "html")
+        monthly_result = parse_ueex(monthly_raw, retrieved_at)
+        observations.extend(monthly_result.observations)
+
+        written = None
+        if args.write:
+            written = create_market_repository(
+                settings.database_path, settings.database_url
+            ).store_gas_market_indices(observations)
+        print(json.dumps({
+            "mode": "write" if args.write else "dry-run",
+            "observations": len(observations),
+            "written": written,
+            "daily_margin": {
+                "available_days": available_days,
+                "missing_days": missing_days,
+                "observations": len(available_days) * 3,
+            },
+            "monthly": {
+                "month": args.month.isoformat(),
+                "observations": len(monthly_result.observations),
+                "missing_prices": monthly_result.missing_prices,
             },
         }, default=str))
         return 0
