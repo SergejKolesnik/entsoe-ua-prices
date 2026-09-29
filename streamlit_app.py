@@ -2408,7 +2408,7 @@ def _draw_price_drivers(
 def _draw_generation_status() -> None:
     """Show the separate public generation-availability evidence panel."""
 
-    st.markdown("### Стан генерації")
+    st.markdown("### Стан системи")
     st.caption(
         "Окремий контур для подій, що впливають на доступну потужність: "
         "ремонти, аварійні виведення та повернення енергоблоків у роботу."
@@ -2853,7 +2853,7 @@ def main() -> None:
         "ВДР",
         "Ринок газу",
         "Газовий ринок УЕБ",
-        "Стан генерації",
+        "Стан системи",
         "Прогноз",
         "Сусідні ринки",
     ]
