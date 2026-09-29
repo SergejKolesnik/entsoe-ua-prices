@@ -16,6 +16,7 @@ from market_forecast.domain import (
 )
 from market_forecast.persistence.raw_artifacts import StoredArtifact
 from market_forecast.domain.gas_history import GasHistoryMonth
+from market_forecast.domain.gas_indices import GasIndexObservation
 
 
 class SQLiteMarketRepository:
@@ -222,6 +223,22 @@ class SQLiteMarketRepository:
                     raw_sha256 TEXT NOT NULL,
                     imported_at_utc TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS gas_market_indices (
+                    series TEXT NOT NULL,
+                    quote_date TEXT NOT NULL,
+                    delivery_date TEXT NOT NULL,
+                    price TEXT NOT NULL,
+                    currency TEXT NOT NULL,
+                    unit TEXT NOT NULL,
+                    vat TEXT NOT NULL,
+                    payment_terms TEXT NOT NULL,
+                    source_url TEXT NOT NULL,
+                    raw_sha256 TEXT NOT NULL,
+                    available_at_utc TEXT NOT NULL,
+                    PRIMARY KEY (series, quote_date, delivery_date, payment_terms)
+                );
+                CREATE INDEX IF NOT EXISTS idx_gas_market_indices_delivery
+                ON gas_market_indices (delivery_date, series);
                 """
             )
             columns = {row[1] for row in connection.execute("PRAGMA table_info(gas_monthly_history)")}
@@ -340,6 +357,58 @@ class SQLiteMarketRepository:
             ).fetchall()
         return [(date.fromisoformat(row[0]), *(Decimal(value) for value in row[1:5]), *row[5:8], _parse_utc(row[8]))
                 for row in rows]
+
+    def store_gas_market_indices(
+        self, observations: Iterable[GasIndexObservation]
+    ) -> int:
+        """Upsert validated public gas indicators, preserving the latest source snapshot."""
+
+        rows = list(observations)
+        if not rows:
+            raise ValueError("Gas market index import has no observations")
+        self.initialize()
+        with closing(self._connect()) as connection, connection:
+            for row in rows:
+                connection.execute(
+                    """INSERT INTO gas_market_indices (
+                           series, quote_date, delivery_date, price, currency, unit, vat,
+                           payment_terms, source_url, raw_sha256, available_at_utc
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(series, quote_date, delivery_date, payment_terms) DO UPDATE SET
+                           price = excluded.price, currency = excluded.currency, unit = excluded.unit,
+                           vat = excluded.vat, source_url = excluded.source_url,
+                           raw_sha256 = excluded.raw_sha256, available_at_utc = excluded.available_at_utc""",
+                    (
+                        row.series, row.quote_date.isoformat(), row.delivery_date.isoformat(),
+                        str(row.price), row.currency, row.unit, row.vat, row.payment_terms,
+                        row.source_url, row.raw_sha256, _utc_iso(row.available_at, "available_at_utc"),
+                    ),
+                )
+        return len(rows)
+
+    def list_gas_market_indices(
+        self, date_from: date | None = None, date_to: date | None = None,
+    ) -> list[tuple]:
+        """Return public gas indicators by gas/delivery date without filling gaps."""
+
+        self.initialize()
+        query = """SELECT series, quote_date, delivery_date, price, currency, unit, vat,
+                          payment_terms, source_url, raw_sha256, available_at_utc
+                   FROM gas_market_indices WHERE 1 = 1"""
+        parameters: list[str] = []
+        if date_from is not None:
+            query += " AND delivery_date >= ?"
+            parameters.append(date_from.isoformat())
+        if date_to is not None:
+            query += " AND delivery_date <= ?"
+            parameters.append(date_to.isoformat())
+        query += " ORDER BY delivery_date, series, payment_terms"
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, parameters).fetchall()
+        return [(
+            row[0], date.fromisoformat(row[1]), date.fromisoformat(row[2]), Decimal(row[3]),
+            *row[4:10], _parse_utc(row[10])
+        ) for row in rows]
 
     def store_gas_procurement(
         self,

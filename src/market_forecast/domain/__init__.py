@@ -6,8 +6,9 @@ from .source_observation import SourceObservation
 from .weather_forecast import WeatherForecastPoint
 from .gas_procurement import GasConsumptionDay, GasProcurementMonth
 from .intraday_market import IntradayMarketResult
+from .gas_indices import GasIndexObservation
 
 __all__ = [
     "CrossBorderFlow", "GasConsumptionDay", "GasProcurementMonth",
-    "HourlyMarketPrice", "IntradayMarketResult", "SourceObservation", "WeatherForecastPoint",
+    "GasIndexObservation", "HourlyMarketPrice", "IntradayMarketResult", "SourceObservation", "WeatherForecastPoint",
 ]

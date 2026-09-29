@@ -32,7 +32,7 @@ The project is intentionally separate from SkyGrid Solar. It provides source ada
 - Test 23-, 24-, and 25-period trading days without inventing missing values.
 - Store immutable raw responses by SHA-256 and normalized prices idempotently in SQLite.
 - Parse official Market Operator legacy XLS workbooks using their verified hourly layout.
-- Explore stored prices in a dark Streamlit dashboard with six decision-oriented tabs: overview, trends, price drivers, gas market, forecast, and neighboring markets. The gas tab reads normalized internal monthly price composition and daily plan/actual consumption from the app database; it never queries Google Sheets during a page view. Calendar-aligned year-over-year seasonality and the weekly heatmap live under Trends; quality and forecast monitoring remain available through an optional Technical status tab.
+- Explore stored prices in a dark Streamlit dashboard with decision-oriented tabs for overview, trends, price drivers, gas market, public UEEX gas indicators, forecast, and neighboring markets. The internal gas tab reads normalized monthly price composition and daily plan/actual consumption from the app database; the public UEEX tab reads persisted source-native market indicators. Neither tab queries Google Sheets during a page view. Calendar-aligned year-over-year seasonality and the weekly heatmap live under Trends; quality and forecast monitoring remain available through an optional Technical status tab.
 - Inspect aggregate forecast-feature coverage without downloading raw Neon rows. The Forecast tab labels the current result as a baseline and shows explicit minimum-history readiness for prices, volumes, neighboring markets, FX, flows, weather, load, and generation.
 
 ## Setup
@@ -348,13 +348,27 @@ public dashboard. Publication scope and aggregation must be approved separately.
 The isolated public-market prototype validates CEGHIX day-ahead prices, UEEX
 monthly VTT prices by payment terms, and the three daily UEEX margin indicators.
 It preserves native currency, unit, VAT basis, delivery date, source URL,
-retrieval timestamp, and raw-response hash. It has no database or dashboard path.
+retrieval timestamp, and raw-response hash. The validated indicators can be
+written to the configured database with the explicit import command below; the
+Streamlit gas tab reads them as a separate public-market series.
 
 ```powershell
 $env:PYTHONPATH = "src"
 python -m market_forecast.gas_indices_dry_run `
   --output-dir data/gas-index-prototype/my-new-run
 ```
+
+For the configured database, the same bounded sources can be imported after
+validation. The default is dry-run; `--write` is required for persistence:
+
+```powershell
+python -m market_forecast.cli import-gas-indices
+python -m market_forecast.cli import-gas-indices --write
+```
+
+The import stores the raw responses under `RAW_DATA_DIRECTORY` and keeps UEEX
+margin indicators in source-native `UAH/1000m3`, excluding VAT. It never fills
+missing gas days and does not expose the participants' private order book.
 
 Each run requires a new local output directory. Source format drift, ambiguous
 prices, stale snapshots, duplicates, missing required fields, or unexpected units
