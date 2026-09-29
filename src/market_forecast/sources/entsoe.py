@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from xml.etree import ElementTree
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -12,6 +14,17 @@ from market_forecast.sources.base import RawResponse
 
 
 API_URL = "https://web-api.tp.entsoe.eu/api"
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationUnavailability:
+    """One ENTSO-E generation-unit unavailability record."""
+
+    unit_name: str | None
+    business_type: str | None
+    available_capacity_mw: float | None
+    start: datetime | None
+    end: datetime | None
 
 
 class EntsoeSource:
@@ -113,6 +126,95 @@ class EntsoeSource:
         )
         raw.require_content()
         return raw
+
+    def fetch_generation_unavailability(
+        self,
+        period_start_utc: datetime,
+        period_end_utc: datetime,
+        bidding_zone_eic: str,
+        business_type: str | None = None,
+    ) -> RawResponse:
+        """Fetch ENTSO-E A80 generation-unit availability for a bidding zone."""
+
+        start = _require_utc(period_start_utc, "period_start_utc")
+        end = _require_utc(period_end_utc, "period_end_utc")
+        if end <= start:
+            raise ValueError("period_end_utc must be after period_start_utc")
+        params = {
+            "securityToken": self._token,
+            "documentType": "A80",
+            "biddingZone_Domain": bidding_zone_eic,
+            "periodStart": start.strftime("%Y%m%d%H%M"),
+            "periodEnd": end.strftime("%Y%m%d%H%M"),
+        }
+        if business_type:
+            params["businessType"] = business_type
+        response = self.session.get(API_URL, params=params, timeout=self.timeout_seconds)
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            raise RuntimeError(
+                f"ENTSO-E request failed with HTTP status {response.status_code}"
+            ) from exc
+        raw = RawResponse(
+            content=response.content,
+            content_type=response.headers.get("Content-Type", ""),
+            status_code=response.status_code,
+            source_url=API_URL,
+        )
+        raw.require_content()
+        return raw
+
+
+def parse_generation_unavailability(content: bytes) -> list[GenerationUnavailability]:
+    """Parse A80 XML while preserving missing capacity as ``None``."""
+
+    try:
+        root = ElementTree.fromstring(content)
+    except ElementTree.ParseError as exc:
+        raise ValueError("ENTSO-E outage response is not valid XML") from exc
+    records: list[GenerationUnavailability] = []
+    for series in root.iter():
+        if _local_name(series.tag) != "TimeSeries":
+            continue
+        values = {_local_name(node.tag): (node.text or "").strip() for node in series.iter()}
+        records.append(
+            GenerationUnavailability(
+                unit_name=(
+                    values.get("production_RegisteredResource.name")
+                    or values.get("registeredResource.name")
+                    or values.get("name")
+                ),
+                business_type=values.get("businessType"),
+                available_capacity_mw=_number(values.get("availableQuantity")),
+                start=_datetime(values.get("start")),
+                end=_datetime(values.get("end")),
+            )
+        )
+    return records
+
+
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _number(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else None
 
 
 def _require_utc(value: datetime, name: str) -> datetime:

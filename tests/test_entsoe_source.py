@@ -18,6 +18,21 @@ class FakeResponse:
 
 
 class EntsoeSourceTests(unittest.TestCase):
+    def test_builds_a80_generation_unavailability_request(self):
+        session = Mock()
+        session.get.return_value = FakeResponse()
+        source = EntsoeSource("secret-token", session=session, timeout_seconds=9)
+        start = datetime(2026, 8, 18, tzinfo=timezone.utc)
+
+        source.fetch_generation_unavailability(
+            start, start + timedelta(days=1), "10Y1001C--00003F", business_type="A53"
+        )
+
+        _, kwargs = session.get.call_args
+        self.assertEqual(kwargs["params"]["documentType"], "A80")
+        self.assertEqual(kwargs["params"]["biddingZone_Domain"], "10Y1001C--00003F")
+        self.assertEqual(kwargs["params"]["businessType"], "A53")
+
     def test_builds_explicit_a44_request(self):
         session = Mock()
         session.get.return_value = FakeResponse()

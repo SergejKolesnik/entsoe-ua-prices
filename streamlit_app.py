@@ -60,7 +60,11 @@ from market_forecast.sources.rdn_diff_tariff import (  # noqa: E402
     load_comparison_source,
 )
 from market_forecast.sources.self_generation import load_self_generation_source  # noqa: E402
-from market_forecast.sources.system_status import fetch_telegram_channel  # noqa: E402
+from market_forecast.sources.entsoe import (  # noqa: E402
+    EntsoeSource,
+    GenerationUnavailability,
+    parse_generation_unavailability,
+)
 
 
 KYIV = ZoneInfo("Europe/Kyiv")
@@ -90,8 +94,6 @@ GAS_MARKET_CACHE_VERSION = 1
 ENTSOE_OUTAGES_URL = "https://transparency.entsoe.eu/outage-domain/r2/unavailabilityOfProductionAndGenerationUnits/show"
 UKRENERGO_TELEGRAM_URL = "https://t.me/Ukrenergo"
 ENERGOATOM_NEWS_URL = "https://energoatom.com.ua/news"
-UKRENERGO_FEED = "ukrenergo"
-ENERGOATOM_FEED = "energoatom_ua"
 
 
 def _anonymous_analytics(settings: Settings) -> None:
@@ -2416,33 +2418,18 @@ def _draw_generation_status() -> None:
         "Окремий контур для подій, що впливають на доступну потужність: "
         "ремонти, аварійні виведення та повернення енергоблоків у роботу."
     )
-    st.warning(
-        "Детальний реєстр блоків ще не підключений до нашої бази. "
-        "Ми не показуємо оцінені мегавати як підтверджені дані."
-    )
+    outages, error = _load_generation_unavailability()
+    if error:
+        st.warning(error)
+    elif outages:
+        _draw_generation_summary(outages)
+    else:
+        st.info("На вибраний період ENTSO-E не повернув подій недоступності генерації.")
     st.markdown("#### Офіційні джерела")
     source_columns = st.columns(3)
     source_columns[0].link_button("ENTSO-E: ремонти та доступність", ENTSOE_OUTAGES_URL, width="stretch")
     source_columns[1].link_button("Укренерго: оперативні повідомлення", UKRENERGO_TELEGRAM_URL, width="stretch")
     source_columns[2].link_button("Енергоатом: новини блоків", ENERGOATOM_NEWS_URL, width="stretch")
-    st.markdown("#### Останні офіційні повідомлення")
-    feed_columns = st.columns(2)
-    for column, channel, label in [
-        (feed_columns[0], UKRENERGO_FEED, "Укренерго"),
-        (feed_columns[1], ENERGOATOM_FEED, "Енергоатом"),
-    ]:
-        try:
-            items = fetch_telegram_channel(channel)
-        except Exception:
-            items = []
-        with column:
-            st.markdown(f"**{label} · Telegram**")
-            if not items:
-                st.caption("Стрічка тимчасово недоступна. Відкрийте офіційне джерело вище.")
-            else:
-                for item in items[:5]:
-                    published = item.published_at.astimezone(KYIV).strftime("%d.%m.%Y %H:%M") if item.published_at else ""
-                    st.markdown(f"[{published} — {item.title}]({item.url})")
     events = pd.DataFrame([
         {
             "Тип події": "Плановий ремонт",
@@ -2464,10 +2451,66 @@ def _draw_generation_status() -> None:
         },
     ])
     st.dataframe(events, width="stretch", hide_index=True)
-    st.info(
-        "Після отримання нового ENTSO-E API-токена додамо автоматичний імпорт "
-        "планових і фактичних недоступностей з розподілом по блоках, датах і МВт."
+    st.caption("Джерело даних: ENTSO-E A80 · generation-unit unavailability. Оновлення — кожні 15 хвилин.")
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _load_generation_unavailability() -> tuple[list[GenerationUnavailability], str | None]:
+    """Load a short current/future window from the configured ENTSO-E API."""
+
+    settings = Settings.from_environment()
+    token = settings.entsoe_token
+    try:
+        if not token:
+            token = str(st.secrets["ENTSOE_TOKEN"])
+    except (KeyError, FileNotFoundError):
+        token = None
+    if not token:
+        return [], "ENTSO-E API-токен ще не доданий. Додайте `ENTSOE_TOKEN` у Secrets Streamlit Cloud."
+    now = datetime.now(timezone.utc)
+    try:
+        raw = EntsoeSource(token, timeout_seconds=settings.request_timeout_seconds).fetch_generation_unavailability(
+            now - timedelta(days=1), now + timedelta(days=30), "10Y1001C--00003F"
+        )
+        return parse_generation_unavailability(raw.content), None
+    except (RuntimeError, ValueError) as exc:
+        return [], f"ENTSO-E тимчасово не повернув дані: {exc}"
+
+
+def _draw_generation_summary(outages: list[GenerationUnavailability]) -> None:
+    """Render only compact aggregates; detailed events remain below."""
+
+    now = datetime.now(timezone.utc)
+    active = [
+        item for item in outages
+        if item.start and item.end and item.start <= now < item.end
+    ]
+    active_capacities = [
+        item.available_capacity_mw for item in active if item.available_capacity_mw is not None
+    ]
+    metrics = st.columns(3)
+    metrics[0].metric("Подій у періоді", len(outages))
+    metrics[1].metric(
+        "Доступно за активними записами",
+        f"{sum(active_capacities):,.0f} МВт" if active_capacities else "—",
     )
+    starts = [item.start for item in outages if item.start]
+    ends = [item.end for item in outages if item.end]
+    period = "—"
+    if starts and ends:
+        period = f"{min(starts).astimezone(KYIV):%d.%m.%Y} — {max(ends).astimezone(KYIV):%d.%m.%Y}"
+    metrics[2].metric("Період покриття", period)
+    rows = [
+        {
+            "Блок / об'єкт": item.unit_name or "Не вказано",
+            "Тип": item.business_type or "Не вказано",
+            "Доступно, МВт": item.available_capacity_mw,
+            "Початок": item.start.astimezone(KYIV).strftime("%d.%m.%Y %H:%M") if item.start else "Не вказано",
+            "Кінець": item.end.astimezone(KYIV).strftime("%d.%m.%Y %H:%M") if item.end else "Не вказано",
+        }
+        for item in outages
+    ]
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
 def _draw_neighbor_markets(
