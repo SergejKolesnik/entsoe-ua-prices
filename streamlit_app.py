@@ -1092,6 +1092,57 @@ def _draw_public_gas_market(frame: pd.DataFrame) -> None:
         "Пропуски не замінюються нулем або попередньою ціною. Джерело: УЕБ."
     )
 
+    monthly = frame[frame["series"] == "UEEX_MONTHLY_VTT"].copy()
+    if monthly.empty:
+        st.info("Місячні котирування УЕБ ще не імпортовані до бази даних.")
+        return
+    terms = {
+        "all": "Усі умови оплати",
+        "prepayment": "Передоплата",
+        "postpayment": "Післяплата",
+    }
+    latest_fixing = monthly["quote_date"].max()
+    latest_monthly = monthly[monthly["quote_date"] == latest_fixing].copy()
+    latest_monthly["payment_label"] = latest_monthly["payment_terms"].map(terms)
+    latest_monthly["delivery_label"] = latest_monthly["delivery_date"].map(
+        lambda value: value.strftime("%m.%Y")
+    )
+    st.markdown("#### Середньостроковий ринок: місячні котирування")
+    st.caption(
+        f"Остання дата фіксації в архіві: {latest_fixing:%d.%m.%Y}. "
+        "Ціни наведені за місяцем поставки, грн/тис. м³ без ПДВ."
+    )
+    chart = go.Figure()
+    for payment_terms, label, color in (
+        ("all", "Усі умови оплати", COST_GREEN),
+        ("prepayment", "Передоплата", AMBER),
+        ("postpayment", "Післяплата", RED),
+    ):
+        subset = latest_monthly[latest_monthly["payment_terms"] == payment_terms].sort_values("delivery_date")
+        if subset.empty:
+            continue
+        chart.add_trace(go.Scatter(
+            x=subset["delivery_date"], y=subset["price"], mode="lines+markers",
+            name=label, line=dict(color=color, width=2), connectgaps=False,
+        ))
+    chart.update_layout(**_chart_layout(350, "грн/1 000 м³ без ПДВ"))
+    st.plotly_chart(chart, width="stretch")
+    table = latest_monthly[["delivery_label", "payment_label", "price"]].sort_values(
+        ["delivery_label", "payment_label"]
+    ).rename(columns={
+        "delivery_label": "Місяць поставки",
+        "payment_label": "Умова оплати",
+        "price": "Ціна, грн/тис. м³",
+    })
+    table["Ціна, грн/тис. м³"] = table["Ціна, грн/тис. м³"].map(
+        lambda value: _format_integer(float(value))
+    )
+    st.dataframe(table, hide_index=True, width="stretch")
+    st.caption(
+        "Середньострокові котирування — це окремий ряд від щоденних маржинальних цін; "
+        "відсутні значення не замінюються нулем або попередньою ціною."
+    )
+
 
 def _draw_daily_market_brief(
     database_path: Path, frame: pd.DataFrame, date_from: date, date_to: date,

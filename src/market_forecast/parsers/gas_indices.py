@@ -12,7 +12,7 @@ import re
 
 from ..domain.gas_indices import GasIndexObservation
 from ..sources.base import RawResponse
-from ..sources.gas_indices import CEGHIX_URL, UEEX_MARGIN_URL, UEEX_URL
+from ..sources.gas_indices import CEGHIX_URL, UEEX_MARGIN_AJAX_URL, UEEX_MARGIN_URL, UEEX_URL
 from ..validation.gas_indices import validate_snapshot_date
 
 CEGH_HEADER = "Trading Day;Contract;Open;High;Low;Close;Volume acc.;Trades;CEGHEDI;VWAP;CEGHIX".split(";")
@@ -39,6 +39,14 @@ def _price(text: str, localized: bool = False) -> Decimal:
 
 def _content(raw: RawResponse, url: str) -> str:
     if raw.status_code != 200 or raw.source_url != url:
+        raise ValueError("Unexpected response provenance")
+    return raw.require_content().decode("utf-8-sig", errors="strict")
+
+
+def _content_from_allowed(raw: RawResponse, *bases: str) -> str:
+    if raw.status_code != 200 or not any(
+        raw.source_url == base or raw.source_url.startswith(base + "?") for base in bases
+    ):
         raise ValueError("Unexpected response provenance")
     return raw.require_content().decode("utf-8-sig", errors="strict")
 
@@ -157,12 +165,7 @@ class _WeightedTable(HTMLParser):
 def parse_ueex(raw: RawResponse, retrieved_at: datetime) -> ParseResult:
     """Parse monthly VTT weighted prices by payment terms, without FX conversion."""
     parser = _WeightedTable()
-    content = _content(raw, UEEX_URL)
-    dates = re.findall(r"станом на\s*(\d{2}\.\d{2}\.\d{4})", unescape(content))
-    if len(dates) != 1:
-        raise ValueError("Expected one UEEX snapshot date")
-    as_of = datetime.strptime(dates[0], "%d.%m.%Y").date()
-    validate_snapshot_date(as_of, retrieved_at)
+    content = _content_from_allowed(raw, UEEX_URL)
     if "З 1 липня 2022 року" not in content or "без урахування ПДВ" not in content:
         raise ValueError("Missing UEEX VAT regime notice")
     parser.feed(content)
@@ -170,28 +173,65 @@ def parse_ueex(raw: RawResponse, retrieved_at: datetime) -> ParseResult:
     if parser.tables != 1 or parser.active or len(parser.rows) < 2:
         raise ValueError("Expected one complete UEEX weighted table")
     header, *body = parser.rows
-    expected = ("дата фіксації ціни", "по всіх умовах оплати", "передоплата", "післяплата")
-    if len(header) != 4 or any(not c["header"] or term not in c["text"] for c, term in zip(header, expected)):
-        raise ValueError("Unsupported UEEX header or payment order")
-    if any("тис." not in c["text"] or "куб." not in c["text"] or "грн" not in c["text"] for c in header[1:]):
+    header_text = [" ".join(c["text"].split()) for c in header]
+    current_layout = len(header) == 5
+    if current_layout:
+        if not header[0]["header"] or not header[1]["header"] or "ресурс" not in header_text[1].lower():
+            raise ValueError("Unsupported UEEX header or payment order")
+        price_headers = header[2:]
+    else:
+        expected = ("дата фіксації ціни", "по всіх умовах оплати", "передоплата", "післяплата")
+        if len(header) != 4 or any(not c["header"] or term not in c["text"] for c, term in zip(header, expected)):
+            raise ValueError("Unsupported UEEX header or payment order")
+        price_headers = header[1:]
+    if any("тис." not in c["text"] or "куб." not in c["text"] or "грн" not in c["text"] for c in price_headers):
         raise ValueError("Unsupported UEEX price units")
+    snapshot_dates = []
+    if current_layout:
+        for cells in body:
+            if not cells or any(c["header"] for c in cells):
+                raise ValueError("Malformed UEEX row")
+            token = " ".join(cells[0]["text"].split())
+            try:
+                snapshot_dates.append(datetime.strptime(token, "%d.%m.%Y").date())
+            except ValueError as exc:
+                raise ValueError(f"Invalid UEEX fixing date: {token!r}") from exc
+    else:
+        dates = re.findall(r"станом на\s*(\d{2}\.\d{2}\.\d{4})", unescape(content))
+        if len(dates) != 1:
+            raise ValueError("Expected one UEEX snapshot date")
+        snapshot_dates.append(datetime.strptime(dates[0], "%d.%m.%Y").date())
+    if not snapshot_dates:
+        raise ValueError("Expected one UEEX snapshot date")
+    as_of = max(snapshot_dates)
+    validate_snapshot_date(as_of, retrieved_at)
     rows, missing, legacy = [], 0, 0
     digest = sha256(raw.content).hexdigest()
     for cells in body:
-        if len(cells) != 4 or any(c["header"] for c in cells):
-            raise ValueError("Malformed UEEX row")
-        label = " ".join(cells[0]["text"].split())
-        match = re.fullmatch(r"(\w+) (\d{4})\s*\((\d{2}\.\d{2}\.\d{4})\)", label)
+        if current_layout:
+            if len(cells) != 5:
+                raise ValueError("Malformed UEEX row")
+            fixed = datetime.strptime(" ".join(cells[0]["text"].split()), "%d.%m.%Y").date()
+            label = " ".join(cells[1]["text"].split())
+            match = re.fullmatch(r"(\w+) (\d{4})", label)
+            price_cells = cells[2:]
+        else:
+            if len(cells) != 4:
+                raise ValueError("Malformed UEEX row")
+            label = " ".join(cells[0]["text"].split())
+            match = re.fullmatch(r"(\w+) (\d{4})\s*\((\d{2}\.\d{2}\.\d{4})\)", label)
+            price_cells = cells[1:]
         if not match or match[1] not in MONTHS:
             raise ValueError(f"Invalid UEEX resource/date: {label!r}")
         resource = date(int(match[2]), MONTHS.index(match[1]) + 1, 1)
-        fixed = datetime.strptime(match[3], "%d.%m.%Y").date()
+        if not current_layout:
+            fixed = datetime.strptime(match[3], "%d.%m.%Y").date()
         if fixed > as_of:
             raise ValueError("UEEX fixing date is after snapshot date")
         if fixed < date(2022, 7, 1):
             legacy += 1
             continue
-        for cell, terms in zip(cells[1:], ("all", "prepayment", "postpayment")):
+        for cell, terms in zip(price_cells, ("all", "prepayment", "postpayment")):
             if not cell["uah"] and not cell["text"].strip():
                 missing += 1
                 continue
@@ -265,21 +305,35 @@ class _MarginTable(HTMLParser):
             self.active = False
 
 
-def parse_ueex_margin(raw: RawResponse, retrieved_at: datetime) -> ParseResult:
+def parse_ueex_margin(
+    raw: RawResponse, retrieved_at: datetime, *, historical: bool = False,
+) -> ParseResult:
     """Parse the final no-VAT UEEX margin indicators for one stated gas day."""
 
-    content = _content(raw, UEEX_MARGIN_URL)
+    content = _content_from_allowed(raw, UEEX_MARGIN_URL, UEEX_MARGIN_AJAX_URL)
     gas_days = re.findall(
         r'name\s*=\s*(?:["\'])?ogts_date(?:["\'])?[^>]*'
-        r'placeholder\s*=\s*(?:["\'])?(\d{2}\.\d{2}\.\d{4})(?:["\'])?',
+        r'(?:placeholder\s*=\s*(?:["\'])?(\d{2}\.\d{2}\.\d{4})(?:["\'])?|value\s*=\s*(?:["\'])?(\d{4}-\d{2}-\d{2})(?:["\'])?)',
         content,
     )
+    if historical:
+        ajax_days = re.findall(r"\|(\d{4}-\d{2}-\d{2})\|", content)
+        gas_days = [(ajax_days[0], "")] if len(ajax_days) == 1 else []
     if len(gas_days) != 1:
         raise ValueError("Expected one UEEX margin gas day")
-    gas_day = datetime.strptime(gas_days[0], "%d.%m.%Y").date()
-    validate_snapshot_date(gas_day, retrieved_at)
+    gas_day_text = next(value for value in gas_days[0] if value)
+    gas_day = (
+        datetime.strptime(gas_day_text, "%d.%m.%Y").date()
+        if "." in gas_day_text else date.fromisoformat(gas_day_text)
+    )
+    if not historical:
+        validate_snapshot_date(gas_day, retrieved_at)
     parser = _MarginTable()
-    parser.feed(content)
+    if historical:
+        rows_html = content.split("|", 1)[0]
+        parser.feed('<table id="ogts_table">' + rows_html + "</table>")
+    else:
+        parser.feed(content)
     parser.close()
     if parser.tables != 1 or parser.active:
         raise ValueError("Expected one complete UEEX margin table")
