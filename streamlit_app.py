@@ -86,6 +86,9 @@ UKRAINIAN_MONTHS = {
 }
 GAS_HISTORY_CACHE_VERSION = 2
 GAS_MARKET_CACHE_VERSION = 1
+ENTSOE_OUTAGES_URL = "https://transparency.entsoe.eu/outage-domain/r2/unavailabilityOfProductionAndGenerationUnits/show"
+UKRENERGO_TELEGRAM_URL = "https://t.me/Ukrenergo"
+ENERGOATOM_NEWS_URL = "https://energoatom.com.ua/news"
 
 
 def _anonymous_analytics(settings: Settings) -> None:
@@ -2402,6 +2405,50 @@ def _draw_price_drivers(
     )
 
 
+def _draw_generation_status() -> None:
+    """Show the separate public generation-availability evidence panel."""
+
+    st.markdown("### Стан генерації")
+    st.caption(
+        "Окремий контур для подій, що впливають на доступну потужність: "
+        "ремонти, аварійні виведення та повернення енергоблоків у роботу."
+    )
+    st.warning(
+        "Детальний реєстр блоків ще не підключений до нашої бази. "
+        "Ми не показуємо оцінені мегавати як підтверджені дані."
+    )
+    st.markdown("#### Офіційні джерела")
+    source_columns = st.columns(3)
+    source_columns[0].link_button("ENTSO-E: ремонти та доступність", ENTSOE_OUTAGES_URL, width="stretch")
+    source_columns[1].link_button("Укренерго: оперативні повідомлення", UKRENERGO_TELEGRAM_URL, width="stretch")
+    source_columns[2].link_button("Енергоатом: новини блоків", ENERGOATOM_NEWS_URL, width="stretch")
+    events = pd.DataFrame([
+        {
+            "Тип події": "Плановий ремонт",
+            "Що відстежуємо": "Планове виведення блока або генеруючої одиниці",
+            "Публічне джерело": "ENTSO-E Outages",
+            "Стан": "Очікує підключення",
+        },
+        {
+            "Тип події": "Аварійне виведення",
+            "Що відстежуємо": "Вимушена недоступність та зміна доступної потужності",
+            "Публічне джерело": "ENTSO-E / Укренерго",
+            "Стан": "Очікує підключення",
+        },
+        {
+            "Тип події": "Повернення після ремонту",
+            "Що відстежуємо": "Підключення блока та набір потужності",
+            "Публічне джерело": "Енергоатом / Укренерго",
+            "Стан": "Очікує підключення",
+        },
+    ])
+    st.dataframe(events, width="stretch", hide_index=True)
+    st.info(
+        "Після отримання нового ENTSO-E API-токена додамо автоматичний імпорт "
+        "планових і фактичних недоступностей з розподілом по блоках, датах і МВт."
+    )
+
+
 def _draw_neighbor_markets(
     database_path: Path,
     date_from: date,
@@ -2806,13 +2853,14 @@ def main() -> None:
         "ВДР",
         "Ринок газу",
         "Газовий ринок УЕБ",
+        "Стан генерації",
         "Прогноз",
         "Сусідні ринки",
     ]
     if show_technical:
         tab_labels.append("Технічний стан")
     tabs = st.tabs(tab_labels)
-    overview, trends, diff_tariff, drivers, intraday_market, gas_market, public_gas_market, forecast, neighbors = tabs[:9]
+    overview, trends, diff_tariff, drivers, intraday_market, gas_market, public_gas_market, generation_status, forecast, neighbors = tabs[:10]
     with overview:
         _draw_daily_market_brief(
             settings.database_path, frame, date_from, date_to, selected_date
@@ -2836,6 +2884,8 @@ def main() -> None:
         _draw_public_gas_market(
             _load_gas_market_indices(str(settings.database_path), GAS_MARKET_CACHE_VERSION)
         )
+    with generation_status:
+        _draw_generation_status()
     with forecast:
         full_history = _load_prices(str(settings.database_path), earliest, latest)
         _draw_forecast_readiness(settings.database_path)
@@ -2844,7 +2894,7 @@ def main() -> None:
     with neighbors:
         _draw_neighbor_markets(settings.database_path, date_from, date_to, selected_date)
     if show_technical:
-        with tabs[9]:
+        with tabs[10]:
             st.markdown("### Якість і повнота даних")
             _draw_quality(settings.database_path, date_from, date_to)
             st.divider()
