@@ -1069,26 +1069,34 @@ def _draw_public_gas_market(frame: pd.DataFrame) -> None:
         "Результати короткострокових біржових операцій УЕБ, грн/тис. м³ без ПДВ. "
         "Це не повний стакан заявок учасників."
     )
-    metrics = st.columns(3)
-    for column, series in zip(metrics, labels):
-        value = latest.get(series)
-        column.metric(labels[series], f"{_format_integer(float(value))} грн/тис. м³" if value is not None else "Немає даних")
+    purchase = latest.get("UEEX_MARGIN_PURCHASE")
+    st.metric(
+        "Маржинальна ціна придбання",
+        f"{_format_integer(float(purchase))} грн/тис. м³" if purchase is not None else "Немає даних",
+    )
+    with st.expander("Додаткові індикатори УЕБ"):
+        extra_metrics = st.columns(2)
+        for column, series in (
+            (extra_metrics[0], "UEEX_MARGIN_SALE"),
+            (extra_metrics[1], "UEEX_MARGIN_WEIGHTED_SHORT_TERM"),
+        ):
+            value = latest.get(series)
+            column.metric(
+                labels[series],
+                f"{_format_integer(float(value))} грн/тис. м³" if value is not None else "Немає даних",
+            )
 
     chart = go.Figure()
-    for series, label, color in (
-        ("UEEX_MARGIN_SALE", "Продаж", COST_GREEN),
-        ("UEEX_MARGIN_WEIGHTED_SHORT_TERM", "Середньозважена", AMBER),
-        ("UEEX_MARGIN_PURCHASE", "Придбання", RED),
-    ):
-        subset = ueex[ueex["series"] == series]
-        chart.add_trace(go.Scatter(
-            x=subset["delivery_date"], y=subset["price"], mode="lines+markers",
-            name=label, line=dict(color=color, width=2), connectgaps=False,
-        ))
+    subset = ueex[ueex["series"] == "UEEX_MARGIN_PURCHASE"]
+    chart.add_trace(go.Scatter(
+        x=subset["delivery_date"], y=subset["price"], mode="lines+markers",
+        name="Маржинальна ціна придбання", line=dict(color=RED, width=2), connectgaps=False,
+    ))
     chart.update_layout(**_chart_layout(390, "грн/1 000 м³ без ПДВ"))
     st.plotly_chart(chart, width="stretch")
     st.caption(
         f"Остання завантажена газова доба: {latest_date:%d.%m.%Y}. "
+        "Графік показує орієнтир сторони купівлі; це не гарантія ціни вашого договору. "
         "Пропуски не замінюються нулем або попередньою ціною. Джерело: УЕБ."
     )
 
