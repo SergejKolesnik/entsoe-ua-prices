@@ -1109,16 +1109,24 @@ def _draw_public_gas_market(frame: pd.DataFrame) -> None:
         "prepayment": "Передоплата",
         "postpayment": "Післяплата",
     }
-    latest_fixing = monthly["quote_date"].max()
-    latest_monthly = monthly[monthly["quote_date"] == latest_fixing].copy()
+    st.markdown("#### Середньостроковий ринок: місячні котирування")
+    delivery_options = sorted(monthly["delivery_date"].dropna().unique(), reverse=True)
+    selected_delivery = st.selectbox(
+        "Місяць поставки для історії",
+        delivery_options,
+        format_func=lambda value: value.strftime("%m.%Y"),
+    )
+    monthly_history = monthly[monthly["delivery_date"] == selected_delivery].sort_values("quote_date")
+    latest_fixing = monthly_history["quote_date"].max()
+    latest_monthly = monthly_history[monthly_history["quote_date"] == latest_fixing].copy()
     latest_monthly["payment_label"] = latest_monthly["payment_terms"].map(terms)
     latest_monthly["delivery_label"] = latest_monthly["delivery_date"].map(
         lambda value: value.strftime("%m.%Y")
     )
-    st.markdown("#### Середньостроковий ринок: місячні котирування")
     st.caption(
-        f"Остання дата фіксації в архіві: {latest_fixing:%d.%m.%Y}. "
-        "Ціни наведені за місяцем поставки, грн/тис. м³ без ПДВ."
+        f"Історія ціни місячного ресурсу {selected_delivery:%m.%Y} "
+        f"до останньої фіксації {latest_fixing:%d.%m.%Y}. "
+        "Ціни накопичуються за укладеними біржовими угодами, грн/тис. м³ без ПДВ."
     )
     chart = go.Figure()
     for payment_terms, label, color in (
@@ -1126,11 +1134,11 @@ def _draw_public_gas_market(frame: pd.DataFrame) -> None:
         ("prepayment", "Передоплата", AMBER),
         ("postpayment", "Післяплата", RED),
     ):
-        subset = latest_monthly[latest_monthly["payment_terms"] == payment_terms].sort_values("delivery_date")
+        subset = monthly_history[monthly_history["payment_terms"] == payment_terms]
         if subset.empty:
             continue
         chart.add_trace(go.Scatter(
-            x=subset["delivery_date"], y=subset["price"], mode="lines+markers",
+            x=subset["quote_date"], y=subset["price"], mode="lines+markers",
             name=label, line=dict(color=color, width=2), connectgaps=False,
         ))
     chart.update_layout(**_chart_layout(350, "грн/1 000 м³ без ПДВ"))
@@ -1147,6 +1155,7 @@ def _draw_public_gas_market(frame: pd.DataFrame) -> None:
     )
     st.dataframe(table, hide_index=True, width="stretch")
     st.caption(
+        "Показано зміну котирування в часі, а не лише останню ціну. "
         "Середньострокові котирування — це окремий ряд від щоденних маржинальних цін; "
         "відсутні значення не замінюються нулем або попередньою ціною."
     )
