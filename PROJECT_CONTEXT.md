@@ -69,9 +69,13 @@ Phase 5: publication foundation. Durable ingestion, automated refresh, analytics
 - Public gas benchmarks remain an isolated local dry run. CEGHIX DA stays in
   EUR/MWh with unspecified VAT; UEEX monthly and margin series stay in
   UAH/1000m3 excluding VAT. Raw hashes and retrieval timestamps are retained,
-  missing values remain explicit, and no conversion, persistence, scheduler, or
-  Streamlit integration exists yet. The 2026-09-21 live run validated 15 CEGHIX,
-  139 monthly UEEX, and 3 UEEX margin observations without database access.
+  missing values remain explicit. The `import-gas-indices` command now persists
+  the validated source-native observations and the dashboard renders UEEX
+  margin series on a separate public-market tab from internal procurement.
+  The 2026-09-21 live run
+  validated 15 CEGHIX, 139 monthly UEEX, and 3 UEEX margin observations; a
+  production Neon migration and scheduled refresh still require separate
+  rollout approval.
 
 ## Security note
 
@@ -101,7 +105,7 @@ The historical public repository tracked an `.env` file containing an ENTSO-E to
 6. Add regression fixtures for documented 23/25-period operator days when available.
 7. Validate the Neon adapter against migrated data, then deploy a read-only Streamlit staging application.
 8. After review, enable the `Publish Hermes report JSON` workflow and verify the first `hermes-report` branch publication before configuring Hermes.
-9. Review licensing and collection cadence for the validated CEGHIX/UEEX dry-run,
-   then design a separate public gas-factor schema and retention policy before any
-   scheduler, Neon write, or dashboard publication.
+9. Review licensing and collection cadence for the persisted CEGHIX/UEEX public
+   gas indicators, apply migration 008 to the intended Neon environment, then
+   enable a scheduled refresh only after database readback verification.
 10. Review a dry-run VDR quarter, apply migration 007 in a staging database, then import a bounded history only after approval; compare VDR–RDN only on matching delivery hours.

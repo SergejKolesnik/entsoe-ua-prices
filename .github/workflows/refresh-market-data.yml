@@ -16,6 +16,8 @@ on:
       timezone: "Europe/Kyiv"
     - cron: "0 0 * * *"
       timezone: "Europe/Kyiv"
+    - cron: "15 10 * * *"
+      timezone: "Europe/Kyiv"
   workflow_dispatch:
     inputs:
       task:
@@ -28,6 +30,7 @@ on:
           - operator
           - intraday
           - context
+          - gas_indices
           - diagnose_operator
           - backfill_neighbors
           - backfill_flows
@@ -133,6 +136,30 @@ jobs:
           quarter=$(((month + 2) / 3))
           python -m market_forecast.cli import-idm-quarter \
             --year "$year" --quarter "$quarter" --allow-partial-quarter --write
+
+  gas_indices:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.task == 'all' || inputs.task == 'gas_indices') ||
+      github.event_name == 'schedule' && github.event.schedule == '15 10 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify database configuration
+        shell: bash
+        run: test -n "$DATABASE_URL"
+      - name: Refresh public gas-market indicators
+        run: python -m market_forecast.cli import-gas-indices --write
 
   context:
     if: >-

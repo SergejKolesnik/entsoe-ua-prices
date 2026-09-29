@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from market_forecast.domain import HourlyMarketPrice
+from market_forecast.domain import GasIndexObservation, HourlyMarketPrice
 from market_forecast.persistence import RawArtifactStore, SQLiteMarketRepository
 
 
@@ -29,6 +29,26 @@ def make_price(
 
 
 class PersistenceTests(unittest.TestCase):
+    def test_gas_market_indices_are_idempotent_and_update_source_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = SQLiteMarketRepository(Path(directory) / "market.sqlite3")
+            first = GasIndexObservation(
+                "UEEX_MARGIN_WEIGHTED_SHORT_TERM", date(2026, 9, 27), date(2026, 9, 27),
+                Decimal("18338.92"), "UAH", "1000m3", "excluded", "not_applicable",
+                "https://www.ueex.com.ua/exchange-quotations/natural-gas/margin-price/",
+                "a" * 64, datetime(2026, 9, 28, 6, tzinfo=timezone.utc),
+            )
+            revised = replace(first, price=Decimal("18340.00"), raw_sha256="b" * 64,
+                              available_at=datetime(2026, 9, 28, 7, tzinfo=timezone.utc))
+
+            self.assertEqual(repository.store_gas_market_indices([first]), 1)
+            self.assertEqual(repository.store_gas_market_indices([revised]), 1)
+
+            rows = repository.list_gas_market_indices()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0][3], Decimal("18340.00"))
+            self.assertEqual(rows[0][9], "b" * 64)
+
     def test_forecast_feature_coverage_is_aggregate_and_explicit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

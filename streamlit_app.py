@@ -85,6 +85,7 @@ UKRAINIAN_MONTHS = {
     9: "Вересень", 10: "Жовтень", 11: "Листопад", 12: "Грудень",
 }
 GAS_HISTORY_CACHE_VERSION = 2
+GAS_MARKET_CACHE_VERSION = 1
 
 
 def _anonymous_analytics(settings: Settings) -> None:
@@ -764,6 +765,25 @@ def _load_gas_price_history(database_path: str) -> list[tuple]:
 
 
 @st.cache_data(ttl=300)
+def _load_gas_market_indices(database_path: str, schema_version: int) -> pd.DataFrame:
+    """Load source-native public gas indicators without filling unavailable days."""
+
+    if schema_version != GAS_MARKET_CACHE_VERSION:
+        raise ValueError("Unsupported public gas market cache schema")
+    rows = _repository(database_path).list_gas_market_indices()
+    frame = pd.DataFrame(rows, columns=[
+        "series", "quote_date", "delivery_date", "price", "currency", "unit", "vat",
+        "payment_terms", "source_url", "raw_sha256", "available_at_utc",
+    ])
+    if frame.empty:
+        return frame
+    frame["quote_date"] = pd.to_datetime(frame["quote_date"])
+    frame["delivery_date"] = pd.to_datetime(frame["delivery_date"])
+    frame["price"] = pd.to_numeric(frame["price"], errors="raise")
+    return frame.sort_values(["delivery_date", "series", "payment_terms"])
+
+
+@st.cache_data(ttl=300)
 def _load_gas_monthly_consumption(database_path: str, schema_version: int) -> pd.DataFrame:
     """Combine monthly history and daily coverage for the consumption overview."""
     from market_forecast.services.gas_consumption import monthly_consumption
@@ -1023,10 +1043,53 @@ def _draw_gas_market(database_path: Path | str) -> None:
                 "Вони не зараховуються як нульове споживання."
             )
 
-    st.info(
-        "Ця вкладка показує внутрішню закупівельну ціну та споживання. "
-        "Публічні індикатори українських і європейських газових ринків "
-        "додамо окремим етапом після перевірки джерел і одиниць виміру."
+
+
+def _draw_public_gas_market(frame: pd.DataFrame) -> None:
+    """Render public UEEX gas-day indicators separately from internal procurement."""
+
+    st.markdown("### Газовий ринок УЕБ")
+    st.caption(
+        "Публічні біржові котирування природного газу в Україні. "
+        "Внутрішня закупівельна ціна та споживання — на вкладці «Ринок газу»."
+    )
+    ueex = frame[frame["series"].str.startswith("UEEX_MARGIN_")].copy()
+    if ueex.empty:
+        st.info("Публічні котирування ще не імпортовані до бази даних.")
+        return
+    labels = {
+        "UEEX_MARGIN_SALE": "Маржинальна ціна продажу",
+        "UEEX_MARGIN_WEIGHTED_SHORT_TERM": "Середньозважена короткострокова",
+        "UEEX_MARGIN_PURCHASE": "Маржинальна ціна придбання",
+    }
+    latest_date = ueex["delivery_date"].max()
+    latest = ueex[ueex["delivery_date"] == latest_date].set_index("series")["price"]
+    st.markdown("#### Публічні котирування УЕБ за газовою добою")
+    st.caption(
+        "Результати короткострокових біржових операцій УЕБ, грн/тис. м³ без ПДВ. "
+        "Це не повний стакан заявок учасників."
+    )
+    metrics = st.columns(3)
+    for column, series in zip(metrics, labels):
+        value = latest.get(series)
+        column.metric(labels[series], f"{_format_integer(float(value))} грн/тис. м³" if value is not None else "Немає даних")
+
+    chart = go.Figure()
+    for series, label, color in (
+        ("UEEX_MARGIN_SALE", "Продаж", COST_GREEN),
+        ("UEEX_MARGIN_WEIGHTED_SHORT_TERM", "Середньозважена", AMBER),
+        ("UEEX_MARGIN_PURCHASE", "Придбання", RED),
+    ):
+        subset = ueex[ueex["series"] == series]
+        chart.add_trace(go.Scatter(
+            x=subset["delivery_date"], y=subset["price"], mode="lines+markers",
+            name=label, line=dict(color=color, width=2), connectgaps=False,
+        ))
+    chart.update_layout(**_chart_layout(390, "грн/1 000 м³ без ПДВ"))
+    st.plotly_chart(chart, width="stretch")
+    st.caption(
+        f"Остання завантажена газова доба: {latest_date:%d.%m.%Y}. "
+        "Пропуски не замінюються нулем або попередньою ціною. Джерело: УЕБ."
     )
 
 
@@ -2674,13 +2737,14 @@ def main() -> None:
         "Фактори ціни",
         "ВДР",
         "Ринок газу",
+        "Газовий ринок УЕБ",
         "Прогноз",
         "Сусідні ринки",
     ]
     if show_technical:
         tab_labels.append("Технічний стан")
     tabs = st.tabs(tab_labels)
-    overview, trends, diff_tariff, drivers, intraday_market, gas_market, forecast, neighbors = tabs[:8]
+    overview, trends, diff_tariff, drivers, intraday_market, gas_market, public_gas_market, forecast, neighbors = tabs[:9]
     with overview:
         _draw_daily_market_brief(
             settings.database_path, frame, date_from, date_to, selected_date
@@ -2700,6 +2764,10 @@ def main() -> None:
         _draw_intraday_market(settings.database_path, frame, date_from, date_to, selected_date)
     with gas_market:
         _draw_gas_market(settings.database_path)
+    with public_gas_market:
+        _draw_public_gas_market(
+            _load_gas_market_indices(str(settings.database_path), GAS_MARKET_CACHE_VERSION)
+        )
     with forecast:
         full_history = _load_prices(str(settings.database_path), earliest, latest)
         _draw_forecast_readiness(settings.database_path)
@@ -2708,7 +2776,7 @@ def main() -> None:
     with neighbors:
         _draw_neighbor_markets(settings.database_path, date_from, date_to, selected_date)
     if show_technical:
-        with tabs[7]:
+        with tabs[9]:
             st.markdown("### Якість і повнота даних")
             _draw_quality(settings.database_path, date_from, date_to)
             st.divider()

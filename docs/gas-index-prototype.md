@@ -2,9 +2,12 @@
 
 ## Scope and evidence
 
-This experiment is independent of the running collectors, internal procurement
-import, Streamlit, migrations and database adapters. It has no SQL or Neon write
-path, no scheduler and no production CLI registration. No new dependency is needed.
+The parser experiment remains independent of the running collectors and internal
+procurement import. Its dry-run module has no SQL or Neon write path. The
+validated parser contracts are now also reused by the explicit
+`import-gas-indices` CLI command, migration 008, and the read-only Streamlit
+public-indicator block; scheduled production refresh remains rollout-gated.
+No new dependency is needed.
 
 The original experiment was recovered onto current `main` at `1d90bbc` and
 extended on `codex/ueex-gas-factors-dry-run`. Only its isolated source, parser,
@@ -78,8 +81,10 @@ verifies stored SHA256 hashes and preserves the original retrieval timestamp;
 freshness is evaluated at that timestamp, not falsely refreshed to today.
 The output manifest explicitly labels replay mode.
 
-There is intentionally no `--write`, database URL, `.env` loading or persistence
-adapter import. Do not wire this into production without a separate review.
+The standalone dry-run intentionally has no `--write`, database URL, `.env`
+loading or persistence adapter import. Production persistence is available only
+through the separate `import-gas-indices --write` command and the reviewed
+migration/workflow path.
 
 ## Live verification
 
@@ -97,7 +102,7 @@ successful local replay, a fresh live dry-run completed on 2026-09-09 at 06:35 U
 with the same accepted/excluded counts and status `validated`. Local evidence is
 in `data/gas-index-prototype/run-20260909-03/`: raw responses, manifest and 153
 normalized observations. These ignored artifacts are not synchronized via Git.
-No database was opened or changed by the prototype.
+No database was opened or changed by the standalone prototype run.
 
 A new live dry-run on 2026-09-21 validated all three current source responses:
 

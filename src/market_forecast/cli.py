@@ -154,6 +154,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-partial-quarter", action="store_true",
         help="Accept only a contiguous prefix of a still-published official quarter.",
     )
+    gas_indices = subparsers.add_parser(
+        "import-gas-indices",
+        help="Validate public gas-market indicators; write only with --write.",
+    )
+    gas_indices.add_argument("--write", action="store_true")
     return parser
 
 
@@ -181,6 +186,52 @@ def main(argv: list[str] | None = None) -> int:
         )
         repository.initialize()
         print("Initialized configured market database")
+        return 0
+    if args.command == "import-gas-indices":
+        from datetime import datetime, timezone
+
+        from market_forecast.config import Settings
+        from market_forecast.parsers.gas_indices import (
+            parse_ceghix, parse_ueex, parse_ueex_margin,
+        )
+        from market_forecast.persistence import create_market_repository
+        from market_forecast.persistence.raw_artifacts import RawArtifactStore
+        from market_forecast.sources.gas_indices import fetch_gas_index
+
+        settings = Settings.from_environment()
+        artifact_store = RawArtifactStore(settings.raw_data_directory)
+        parsed = []
+        for source, parser in (
+            ("ceghix", parse_ceghix),
+            ("ueex", parse_ueex),
+            ("ueex_margin", parse_ueex_margin),
+        ):
+            retrieved_at = datetime.now(timezone.utc)
+            raw = fetch_gas_index(source)
+            artifact_store.save(raw.content, f"gas-{source}", retrieved_at.date(), "raw")
+            result = parser(raw, retrieved_at)
+            parsed.append((source, result))
+
+        observations = [observation for _source, result in parsed for observation in result.observations]
+        written = None
+        if args.write:
+            written = create_market_repository(
+                settings.database_path, settings.database_url
+            ).store_gas_market_indices(observations)
+        print(json.dumps({
+            "mode": "write" if args.write else "dry-run",
+            "observations": len(observations),
+            "written": written,
+            "sources": {
+                source: {
+                    "accepted": len(result.observations),
+                    "missing_prices": result.missing_prices,
+                    "unsupported_contracts": result.unsupported_contracts,
+                    "unsupported_vat_rows": result.unsupported_vat_rows,
+                }
+                for source, result in parsed
+            },
+        }, default=str))
         return 0
     if args.command == "import-idm-quarter":
         from datetime import datetime, timezone
