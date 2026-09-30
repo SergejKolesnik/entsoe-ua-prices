@@ -48,6 +48,17 @@ class GasConsumptionFactTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     parse_gas_consumption_fact_csv(stream.getvalue().encode(), date(2025, 9, 1), "fact")
 
+    def test_allows_an_open_last_day_only_when_requested(self) -> None:
+        rows = list(csv.reader(StringIO(fixture().decode())))
+        rows[30][3] = ""
+        rows[-1][3] = "31900"
+        stream = StringIO(); csv.writer(stream).writerows(rows)
+        days = parse_gas_consumption_fact_csv(
+            stream.getvalue().encode(), date(2025, 9, 1), "fact", allow_partial=True,
+        )
+        self.assertIsNone(days[-1].actual_volume_m3)
+        self.assertEqual(sum(item.actual_volume_m3 or 0 for item in days), Decimal("31900"))
+
     def test_allows_only_explicit_small_commercial_total_difference(self) -> None:
         rows = list(csv.reader(StringIO(fixture().decode())))
         rows[-1][3] = "33003"

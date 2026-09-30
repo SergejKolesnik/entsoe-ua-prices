@@ -111,11 +111,12 @@ def build_parser() -> argparse.ArgumentParser:
     gas_import.add_argument("--sheet", required=True, dest="sheet_name")
     gas_fact_import = subparsers.add_parser(
         "import-gas-fact-sheet",
-        help="Validate one complete commercial gas-consumption fact sheet; write only with --write.",
+        help="Validate one commercial gas-consumption fact sheet; write only with --write.",
     )
     gas_fact_import.add_argument("--month", required=True, type=date.fromisoformat)
     gas_fact_import.add_argument("--sheet", required=True, dest="sheet_name")
     gas_fact_import.add_argument("--write", action="store_true")
+    gas_fact_import.add_argument("--allow-partial", action="store_true")
     gas_fact_import.add_argument("--total-tolerance-m3", type=Decimal, default=Decimal(0))
     annual = subparsers.add_parser("import-gas-year", help="Validate annual gas history; write only with --write.")
     annual.add_argument("--year", type=int, required=True)
@@ -758,12 +759,15 @@ def main(argv: list[str] | None = None) -> int:
         days = parse_gas_consumption_fact_csv(
             response.require_content(), args.month, args.sheet_name,
             total_tolerance_m3=args.total_tolerance_m3,
+            allow_partial=args.allow_partial,
         )
         written = None
         if args.write:
             written = create_market_repository(
                 settings.database_path, settings.database_url
-            ).store_gas_consumption_days(days, datetime.now(timezone.utc))
+                ).store_gas_consumption_days(
+                    days, datetime.now(timezone.utc), allow_missing_actual=args.allow_partial
+                )
         print(json.dumps({"mode": "write" if args.write else "dry-run", "days": len(days),
                           "actual_total_m3": str(sum(item.actual_volume_m3 for item in days)),
                           "written": written, "month": args.month.isoformat(),

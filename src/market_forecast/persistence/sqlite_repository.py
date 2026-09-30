@@ -489,6 +489,7 @@ class SQLiteMarketRepository:
 
     def store_gas_consumption_days(
         self, days: Iterable[GasConsumptionDay], imported_at_utc: datetime,
+        *, allow_missing_actual: bool = False,
     ) -> int:
         """Upsert a complete, price-free monthly fact source without inventing prices."""
 
@@ -497,7 +498,7 @@ class SQLiteMarketRepository:
             raise ValueError("Gas consumption fact import has no daily rows")
         if len({item.delivery_date for item in rows}) != len(rows):
             raise ValueError("Gas consumption fact import has duplicate delivery dates")
-        if any(item.actual_volume_m3 is None for item in rows):
+        if not allow_missing_actual and any(item.actual_volume_m3 is None for item in rows):
             raise ValueError("Gas consumption fact import requires explicit commercial facts")
         imported_at = _utc_iso(imported_at_utc, "imported_at_utc")
         self.initialize()
