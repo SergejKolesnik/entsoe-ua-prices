@@ -166,6 +166,20 @@ class SQLiteMarketRepository:
 
                 CREATE INDEX IF NOT EXISTS idx_generation_unavailability_period
                 ON generation_unavailability (start_utc, end_utc, bidding_zone);
+                CREATE TABLE IF NOT EXISTS system_metrics (
+                    source TEXT NOT NULL,
+                    metric TEXT NOT NULL,
+                    bidding_zone TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    observed_at_utc TEXT NOT NULL,
+                    value_mw NUMERIC NOT NULL,
+                    source_revision TEXT,
+                    raw_artifact_id INTEGER REFERENCES raw_artifacts(id),
+                    ingested_at_utc TEXT NOT NULL,
+                    PRIMARY KEY (source, metric, bidding_zone, category, observed_at_utc)
+                );
+                CREATE INDEX IF NOT EXISTS idx_system_metrics_time
+                ON system_metrics (metric, bidding_zone, observed_at_utc);
 
                 CREATE TABLE IF NOT EXISTS forecast_runs (
                     id INTEGER PRIMARY KEY,
@@ -958,6 +972,69 @@ class SQLiteMarketRepository:
             )
             for row in rows
         ]
+
+    def store_system_metrics(
+        self, artifact: StoredArtifact, source_url: str, fetched_at_utc: datetime,
+        bidding_zone: str, records: Iterable[object],
+    ) -> int:
+        """Persist timestamped ENTSO-E A75/A65/A68 observations."""
+
+        rows = list(records)
+        if not rows:
+            return 0
+        fetched_at = _utc_iso(fetched_at_utc, "fetched_at_utc")
+        self.initialize()
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """INSERT INTO raw_artifacts (
+                       sha256, source, delivery_date, source_url, content_type,
+                       local_path, byte_count, fetched_at_utc, validation_status
+                   ) VALUES (?, 'entsoe_system', DATE(?), ?, 'application/xml', ?, ?, ?, 'validated')
+                   ON CONFLICT(source, delivery_date, sha256) DO NOTHING""",
+                (artifact.sha256, fetched_at, source_url, str(artifact.path), artifact.byte_count, fetched_at),
+            )
+            artifact_row = connection.execute(
+                """SELECT id FROM raw_artifacts
+                   WHERE source = 'entsoe_system' AND delivery_date = DATE(?) AND sha256 = ?""",
+                (fetched_at, artifact.sha256),
+            ).fetchone()
+            artifact_id = int(artifact_row[0]) if artifact_row else None
+            changed = 0
+            for item in rows:
+                cursor = connection.execute(
+                    """INSERT INTO system_metrics (
+                           source, metric, bidding_zone, category, observed_at_utc,
+                           value_mw, source_revision, raw_artifact_id, ingested_at_utc
+                       ) VALUES ('entsoe', ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(source, metric, bidding_zone, category, observed_at_utc)
+                       DO UPDATE SET value_mw = excluded.value_mw,
+                                     source_revision = excluded.source_revision,
+                                     raw_artifact_id = excluded.raw_artifact_id,
+                                     ingested_at_utc = excluded.ingested_at_utc""",
+                    (item.metric, bidding_zone, item.category, _utc_iso(item.observed_at, "observed_at"),
+                     str(item.value_mw), item.source_revision, artifact_id, fetched_at),
+                )
+                changed += cursor.rowcount
+        return changed
+
+    def list_system_metrics(
+        self, metric: str, period_start_utc: datetime, period_end_utc: datetime,
+        bidding_zone: str,
+    ) -> list[tuple[datetime, str, Decimal, str | None]]:
+        """Return published system observations for a metric and period."""
+
+        start = _utc_iso(period_start_utc, "period_start_utc")
+        end = _utc_iso(period_end_utc, "period_end_utc")
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT observed_at_utc, category, value_mw, source_revision
+                   FROM system_metrics
+                   WHERE metric = ? AND bidding_zone = ?
+                     AND observed_at_utc >= ? AND observed_at_utc < ?
+                   ORDER BY observed_at_utc, category""",
+                (metric, bidding_zone, start, end),
+            ).fetchall()
+        return [(_parse_utc(row[0]), row[1], Decimal(row[2]), row[3]) for row in rows]
 
     def list_flows(
         self, period_start_utc: datetime, period_end_utc: datetime

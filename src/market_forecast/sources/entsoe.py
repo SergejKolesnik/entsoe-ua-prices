@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from xml.etree import ElementTree
 
 import requests
@@ -26,6 +26,17 @@ class GenerationUnavailability:
     available_capacity_mw: float | None
     start: datetime | None
     end: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class SystemMetric:
+    """One published ENTSO-E system observation in MW."""
+
+    metric: str
+    category: str
+    observed_at: datetime
+    value_mw: float
+    source_revision: str | None = None
 
 
 class EntsoeSource:
@@ -166,6 +177,67 @@ class EntsoeSource:
         raw.require_content()
         return raw
 
+    def fetch_actual_generation(
+        self, period_start_utc: datetime, period_end_utc: datetime, bidding_zone_eic: str
+    ) -> RawResponse:
+        """Fetch A75 realised generation by production type."""
+
+        return self._fetch_generation_document(
+            period_start_utc, period_end_utc, bidding_zone_eic,
+            document_type="A75", process_type="A16",
+        )
+
+    def fetch_actual_load(
+        self, period_start_utc: datetime, period_end_utc: datetime, bidding_zone_eic: str
+    ) -> RawResponse:
+        """Fetch A65 realised total load for a bidding zone."""
+
+        return self._fetch_generation_document(
+            period_start_utc, period_end_utc, bidding_zone_eic,
+            document_type="A65", process_type="A16", domain_key="outBiddingZone_Domain",
+        )
+
+    def fetch_installed_capacity(
+        self, period_start_utc: datetime, period_end_utc: datetime, bidding_zone_eic: str
+    ) -> RawResponse:
+        """Fetch A68 installed generation capacity by production type."""
+
+        return self._fetch_generation_document(
+            period_start_utc, period_end_utc, bidding_zone_eic,
+            document_type="A68", process_type="A33",
+        )
+
+    def _fetch_generation_document(
+        self, period_start_utc: datetime, period_end_utc: datetime,
+        bidding_zone_eic: str, *, document_type: str, process_type: str,
+        domain_key: str = "in_Domain",
+    ) -> RawResponse:
+        start = _require_utc(period_start_utc, "period_start_utc")
+        end = _require_utc(period_end_utc, "period_end_utc")
+        if end <= start:
+            raise ValueError("period_end_utc must be after start")
+        response = self.session.get(
+            API_URL,
+            params={
+                "securityToken": self._token,
+                "documentType": document_type,
+                "processType": process_type,
+                domain_key: bidding_zone_eic,
+                "periodStart": start.strftime("%Y%m%d%H%M"),
+                "periodEnd": end.strftime("%Y%m%d%H%M"),
+            },
+            timeout=self.timeout_seconds,
+        )
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            raise RuntimeError(
+                f"ENTSO-E request failed with HTTP status {response.status_code}"
+            ) from exc
+        raw = RawResponse(response.content, response.headers.get("Content-Type", ""), response.status_code, API_URL)
+        raw.require_content()
+        return raw
+
 
 def parse_generation_unavailability(content: bytes) -> list[GenerationUnavailability]:
     """Parse A80 XML while preserving missing capacity as ``None``."""
@@ -196,6 +268,42 @@ def parse_generation_unavailability(content: bytes) -> list[GenerationUnavailabi
     return records
 
 
+def parse_system_metrics(content: bytes, metric: str) -> list[SystemMetric]:
+    """Parse A75/A65/A68 generation/load XML into timestamped MW observations."""
+
+    try:
+        root = ElementTree.fromstring(content)
+    except ElementTree.ParseError as exc:
+        raise ValueError("ENTSO-E system response is not valid XML") from exc
+    records: list[SystemMetric] = []
+    for series in root.iter():
+        if _local_name(series.tag) != "TimeSeries":
+            continue
+        values = {_local_name(node.tag): (node.text or "").strip() for node in series.iter()}
+        category = values.get("psrType") or values.get("MktPSRType.psrType") or "total"
+        revision = values.get("mRID")
+        for period in (node for node in series.iter() if _local_name(node.tag) == "Period"):
+            start_text = next((node.text for node in period.iter() if _local_name(node.tag) == "start"), None)
+            resolution_text = next((node.text for node in period.iter() if _local_name(node.tag) == "resolution"), None)
+            if not start_text or not resolution_text:
+                continue
+            start = _datetime(start_text.strip())
+            resolution = _duration(resolution_text.strip())
+            if start is None or resolution is None:
+                continue
+            for point in (node for node in period.iter() if _local_name(node.tag) == "Point"):
+                position_text = next((node.text for node in point.iter() if _local_name(node.tag) == "position"), None)
+                quantity_text = next((node.text for node in point.iter() if _local_name(node.tag) in {"quantity", "in_Qty", "out_Qty"}), None)
+                try:
+                    position = int(position_text or "")
+                    value = float(quantity_text or "")
+                except ValueError:
+                    continue
+                if position > 0:
+                    records.append(SystemMetric(metric, category, start + resolution * (position - 1), value, revision))
+    return records
+
+
 def _local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
@@ -217,6 +325,20 @@ def _datetime(value: str | None) -> datetime | None:
     except ValueError:
         return None
     return parsed if parsed.tzinfo else None
+
+
+def _duration(value: str) -> timedelta | None:
+    if not value.startswith("PT"):
+        return None
+    value = value[2:]
+    try:
+        if value.endswith("H"):
+            return timedelta(hours=int(value[:-1]))
+        if value.endswith("M"):
+            return timedelta(minutes=int(value[:-1]))
+    except ValueError:
+        return None
+    return None
 
 
 def _require_utc(value: datetime, name: str) -> datetime:

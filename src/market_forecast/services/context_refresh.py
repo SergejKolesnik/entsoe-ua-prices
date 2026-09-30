@@ -18,6 +18,7 @@ from market_forecast.sources import (
     OpenMeteoSource,
     OperatorMarketSource,
     parse_generation_unavailability,
+    parse_system_metrics,
     parse_open_meteo_forecast,
 )
 from market_forecast.weather_locations import WEATHER_LOCATIONS
@@ -227,6 +228,36 @@ def refresh_market_context(
         )
 
     execute("entsoe_outages", dates.today, refresh_generation_unavailability)
+
+    def refresh_system_metric(metric: str, fetcher, artifact_name: str) -> int:
+        raw = fetcher(
+            attempted_at - timedelta(days=1), attempted_at + timedelta(hours=1), UKRAINE_ZONE
+        )
+        records = parse_system_metrics(raw.content, metric)
+        artifact = service.artifact_store.save(raw.content, artifact_name, dates.today, "xml")
+        return repository.store_system_metrics(
+            artifact, raw.source_url, attempted_at, UKRAINE_ZONE, records
+        )
+
+    execute(
+        "entsoe_generation",
+        dates.today,
+        lambda: refresh_system_metric(
+            "actual_generation", entsoe.fetch_actual_generation, "entsoe_generation"
+        ),
+    )
+    execute(
+        "entsoe_load",
+        dates.today,
+        lambda: refresh_system_metric("actual_load", entsoe.fetch_actual_load, "entsoe_load"),
+    )
+    execute(
+        "entsoe_capacity",
+        dates.today,
+        lambda: refresh_system_metric(
+            "installed_capacity", entsoe.fetch_installed_capacity, "entsoe_capacity"
+        ),
+    )
     for market in NEIGHBOR_MARKETS:
         execute(
             f"entsoe_price_{market.code}",

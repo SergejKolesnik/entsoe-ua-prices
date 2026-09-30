@@ -56,6 +56,18 @@ class EntsoeSourceTests(unittest.TestCase):
         self.assertEqual(kwargs["params"]["periodEnd"], "202608190000")
         self.assertEqual(kwargs["timeout"], 9)
 
+    def test_builds_a75_and_a65_requests(self):
+        session = Mock()
+        session.get.return_value = FakeResponse()
+        source = EntsoeSource("secret-token", session=session)
+        start = datetime(2026, 8, 18, tzinfo=timezone.utc)
+        source.fetch_actual_generation(start, start + timedelta(hours=1), "zone")
+        self.assertEqual(session.get.call_args.kwargs["params"]["documentType"], "A75")
+        source.fetch_actual_load(start, start + timedelta(hours=1), "zone")
+        params = session.get.call_args.kwargs["params"]
+        self.assertEqual(params["documentType"], "A65")
+        self.assertEqual(params["outBiddingZone_Domain"], "zone")
+
     def test_rejects_naive_timestamps(self):
         source = EntsoeSource("secret-token", session=Mock())
         start = datetime(2026, 8, 18)

@@ -1,6 +1,12 @@
 """Raw external-source adapters."""
 
-from .entsoe import EntsoeSource, GenerationUnavailability, parse_generation_unavailability
+from .entsoe import (
+    EntsoeSource,
+    GenerationUnavailability,
+    SystemMetric,
+    parse_generation_unavailability,
+    parse_system_metrics,
+)
 from .operator_market import OperatorMarketSource
 from .operator_intraday import OperatorIntradaySource
 from .nbu import NbuExchangeRateSource
@@ -11,7 +17,9 @@ from .self_generation import load_self_generation_source
 __all__ = [
     "EntsoeSource",
     "GenerationUnavailability",
+    "SystemMetric",
     "parse_generation_unavailability",
+    "parse_system_metrics",
     "NbuExchangeRateSource",
     "OpenMeteoSource",
     "OperatorMarketSource",

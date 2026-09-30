@@ -2413,6 +2413,13 @@ def _draw_generation_status(database_path: Path | str) -> None:
         "Окремий контур для подій, що впливають на доступну потужність: "
         "ремонти, аварійні виведення та повернення енергоблоків у роботу."
     )
+    metrics, metrics_error = _load_system_metrics(str(database_path))
+    if metrics_error:
+        st.warning(metrics_error)
+    elif metrics:
+        _draw_system_metrics(metrics)
+    else:
+        st.info("Фактичні показники генерації ще не завантажені збирачем ENTSO-E.")
     outages, error = _load_generation_unavailability(str(database_path))
     if error:
         st.warning(error)
@@ -2446,7 +2453,60 @@ def _draw_generation_status(database_path: Path | str) -> None:
         },
     ])
     st.dataframe(events, width="stretch", hide_index=True)
-    st.caption("Джерело даних: ENTSO-E A80 · generation-unit unavailability. Оновлення — кожні 15 хвилин.")
+    st.caption("Джерело: ENTSO-E A75/A65/A68/A80. Оновлення виконує GitHub Actions.")
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _load_system_metrics(database_path: str):
+    """Read collected actual generation, load, and installed capacity."""
+
+    now = datetime.now(timezone.utc)
+    try:
+        repository = _repository(database_path)
+        result = {}
+        for metric in ("actual_generation", "actual_load", "installed_capacity"):
+            result[metric] = repository.list_system_metrics(
+                metric, now - timedelta(days=2), now + timedelta(hours=1), "10Y1001C--00003F"
+            )
+        return result, None
+    except Exception:
+        return {}, "Фактичні показники ще не завантажені збирачем ENTSO-E."
+
+
+def _draw_system_metrics(metrics: dict) -> None:
+    """Render the latest published ENTSO-E system numbers compactly."""
+
+    def latest(metric: str):
+        rows = metrics.get(metric, [])
+        if not rows:
+            return None
+        latest_at = max(row[0] for row in rows)
+        return latest_at, [row for row in rows if row[0] == latest_at]
+
+    generation = latest("actual_generation")
+    load = latest("actual_load")
+    capacity = latest("installed_capacity")
+    cards = st.columns(3)
+    cards[0].metric(
+        "Фактична генерація",
+        f"{sum(row[2] for row in generation[1]):,.0f} МВт" if generation else "—",
+    )
+    cards[1].metric(
+        "Фактичне споживання",
+        f"{sum(row[2] for row in load[1]):,.0f} МВт" if load else "—",
+    )
+    cards[2].metric(
+        "Встановлена потужність",
+        f"{sum(row[2] for row in capacity[1]):,.0f} МВт" if capacity else "—",
+    )
+    latest_times = [item[0] for item in (generation, load, capacity) if item]
+    if latest_times:
+        st.caption(f"Останні опубліковані значення: {max(latest_times).astimezone().strftime('%d.%m.%Y %H:%M')} за Києвом")
+    if generation:
+        frame = pd.DataFrame(
+            [{"Тип генерації": row[1], "МВт": float(row[2])} for row in generation[1]]
+        ).sort_values("МВт", ascending=False)
+        st.dataframe(frame, width="stretch", hide_index=True)
 
 
 @st.cache_data(ttl=900, show_spinner=False)
