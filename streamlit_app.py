@@ -186,6 +186,16 @@ def _inject_styles() -> None:
         .analysis-context-card.forecast .analysis-context-value { color: #7de0aa; }
         .analysis-context-meta { color: #aab4c2; font-size: 11px; line-height: 1.45; }
         .analysis-context-meta strong { color: #e8edf4; }
+        .resource-section {
+            margin: 18px 0 4px; padding: 10px 14px;
+            border-radius: 8px; background: rgba(17,23,34,.86);
+            border: 1px solid rgba(255,255,255,.08);
+            border-left: 4px solid #378add;
+        }
+        .resource-section.gas { border-left-color: #58c68d; }
+        .resource-section-title { color: #dce8f7; font-size: 17px; font-weight: 800; }
+        .resource-section.gas .resource-section-title { color: #bff0d2; }
+        .resource-section-note { color: #8d99aa; font-size: 11px; margin-left: 9px; }
         .daily-review-date {
             display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 14px;
             margin: 0 0 13px; padding: 12px 15px;
@@ -2798,20 +2808,22 @@ def main() -> None:
         st.warning("У вибраному періоді немає даних.")
         return
 
-    tab_labels = [
-        "Електро: огляд",
-        "Електро: тенденції",
-        "Електро: дифтариф",
-        "Електро: фактори",
-        "Електро: ВДР",
-        "Газ: закупівля",
-        "Газ: УЕБ",
-        "Електро: сусідні ринки",
-    ]
-    if show_technical:
-        tab_labels.append("Технічний стан")
-    tabs = st.tabs(tab_labels)
-    overview, trends, diff_tariff, drivers, intraday_market, gas_market, public_gas_market, neighbors = tabs[:8]
+    st.markdown(
+        '<div class="resource-section"><span class="resource-section-title">⚡ Електроенергія</span>'
+        '<span class="resource-section-note">РДН, ВДР та сусідні електричні ринки</span></div>',
+        unsafe_allow_html=True,
+    )
+    electricity_tabs = st.tabs(
+        ["Огляд", "Тенденції", "Дифтариф НЗФ", "Фактори ціни", "ВДР", "Сусідні ринки"]
+    )
+    overview, trends, diff_tariff, drivers, intraday_market, neighbors = electricity_tabs
+    st.markdown(
+        '<div class="resource-section gas"><span class="resource-section-title">🔥 Газ</span>'
+        '<span class="resource-section-note">Внутрішня закупівля та публічні індекси УЕБ</span></div>',
+        unsafe_allow_html=True,
+    )
+    gas_tabs = st.tabs(["Закупівля", "УЕБ"])
+    gas_market, public_gas_market = gas_tabs
     with overview:
         _draw_daily_market_brief(
             settings.database_path, frame, date_from, date_to, selected_date
@@ -2838,7 +2850,7 @@ def main() -> None:
     with neighbors:
         _draw_neighbor_markets(settings.database_path, date_from, date_to, selected_date)
     if show_technical:
-        with tabs[8]:
+        with st.expander("Технічний стан", expanded=True):
             st.markdown("### Якість і повнота даних")
             _draw_quality(settings.database_path, date_from, date_to)
             st.divider()
