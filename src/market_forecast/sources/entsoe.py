@@ -20,6 +20,7 @@ API_URL = "https://web-api.tp.entsoe.eu/api"
 class GenerationUnavailability:
     """One ENTSO-E generation-unit unavailability record."""
 
+    event_id: str | None
     unit_name: str | None
     business_type: str | None
     available_capacity_mw: float | None
@@ -180,6 +181,7 @@ def parse_generation_unavailability(content: bytes) -> list[GenerationUnavailabi
         values = {_local_name(node.tag): (node.text or "").strip() for node in series.iter()}
         records.append(
             GenerationUnavailability(
+                event_id=values.get("mRID"),
                 unit_name=(
                     values.get("production_RegisteredResource.name")
                     or values.get("registeredResource.name")

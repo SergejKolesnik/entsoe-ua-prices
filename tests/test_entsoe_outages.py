@@ -1,6 +1,10 @@
 import unittest
+from datetime import datetime, timezone
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from market_forecast.sources.entsoe import parse_generation_unavailability
+from market_forecast.persistence import RawArtifactStore, SQLiteMarketRepository
+from market_forecast.sources.entsoe import GenerationUnavailability, parse_generation_unavailability
 
 
 class EntsoeOutageParserTests(unittest.TestCase):
@@ -27,6 +31,39 @@ class EntsoeOutageParserTests(unittest.TestCase):
         rows = parse_generation_unavailability(b"<root><TimeSeries /></root>")
 
         self.assertIsNone(rows[0].available_capacity_mw)
+
+    def test_repository_round_trip_is_idempotent(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = SQLiteMarketRepository(root / "market.sqlite3")
+            artifact = RawArtifactStore(root / "raw").save(
+                b"<outage />", "entsoe_outage", datetime.now(timezone.utc).date(), "xml"
+            )
+            item = GenerationUnavailability(
+                event_id="event-1",
+                unit_name="Unit 1",
+                business_type="A53",
+                available_capacity_mw=420.0,
+                start=datetime(2026, 9, 29, tzinfo=timezone.utc),
+                end=datetime(2026, 10, 1, tzinfo=timezone.utc),
+            )
+
+            first = repository.store_generation_unavailability(
+                artifact, "https://example.test/api", item.start, "UA-IPS", [item]
+            )
+            second = repository.store_generation_unavailability(
+                artifact, "https://example.test/api", item.start, "UA-IPS", [item]
+            )
+
+            self.assertEqual(first, 1)
+            self.assertEqual(second, 1)
+            rows = repository.list_generation_unavailability(
+                datetime(2026, 9, 29, tzinfo=timezone.utc),
+                datetime(2026, 10, 2, tzinfo=timezone.utc),
+                "UA-IPS",
+            )
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0][0], "Unit 1")
 
 
 if __name__ == "__main__":

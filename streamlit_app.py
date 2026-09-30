@@ -60,11 +60,6 @@ from market_forecast.sources.rdn_diff_tariff import (  # noqa: E402
     load_comparison_source,
 )
 from market_forecast.sources.self_generation import load_self_generation_source  # noqa: E402
-from market_forecast.sources.entsoe import (  # noqa: E402
-    EntsoeSource,
-    GenerationUnavailability,
-    parse_generation_unavailability,
-)
 
 
 KYIV = ZoneInfo("Europe/Kyiv")
@@ -2410,7 +2405,7 @@ def _draw_price_drivers(
     )
 
 
-def _draw_generation_status() -> None:
+def _draw_generation_status(database_path: Path | str) -> None:
     """Show the separate public generation-availability evidence panel."""
 
     st.markdown("### Стан системи")
@@ -2418,7 +2413,7 @@ def _draw_generation_status() -> None:
         "Окремий контур для подій, що впливають на доступну потужність: "
         "ремонти, аварійні виведення та повернення енергоблоків у роботу."
     )
-    outages, error = _load_generation_unavailability()
+    outages, error = _load_generation_unavailability(str(database_path))
     if error:
         st.warning(error)
     elif outages:
@@ -2455,38 +2450,33 @@ def _draw_generation_status() -> None:
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def _load_generation_unavailability() -> tuple[list[GenerationUnavailability], str | None]:
-    """Load a short current/future window from the configured ENTSO-E API."""
+def _load_generation_unavailability(
+    database_path: str,
+) -> tuple[list[tuple[str | None, str | None, object, object, object]], str | None]:
+    """Read a short current/future A80 window already collected by GitHub Actions."""
 
-    settings = Settings.from_environment()
-    token = settings.entsoe_token
-    try:
-        if not token:
-            token = str(st.secrets["ENTSOE_TOKEN"])
-    except (KeyError, FileNotFoundError):
-        token = None
-    if not token:
-        return [], "ENTSO-E API-токен ще не доданий. Додайте `ENTSOE_TOKEN` у Secrets Streamlit Cloud."
     now = datetime.now(timezone.utc)
     try:
-        raw = EntsoeSource(token, timeout_seconds=settings.request_timeout_seconds).fetch_generation_unavailability(
+        rows = _repository(database_path).list_generation_unavailability(
             now - timedelta(days=1), now + timedelta(days=30), "10Y1001C--00003F"
         )
-        return parse_generation_unavailability(raw.content), None
-    except (RuntimeError, ValueError) as exc:
-        return [], f"ENTSO-E тимчасово не повернув дані: {exc}"
+        return rows, None
+    except Exception:
+        return [], "Дані стану системи ще не завантажені збирачем ENTSO-E."
 
 
-def _draw_generation_summary(outages: list[GenerationUnavailability]) -> None:
+def _draw_generation_summary(
+    outages: list[tuple[str | None, str | None, object, object, object]],
+) -> None:
     """Render only compact aggregates; detailed events remain below."""
 
     now = datetime.now(timezone.utc)
     active = [
         item for item in outages
-        if item.start and item.end and item.start <= now < item.end
+        if item[3] and item[4] and item[3] <= now < item[4]
     ]
     active_capacities = [
-        item.available_capacity_mw for item in active if item.available_capacity_mw is not None
+        item[2] for item in active if item[2] is not None
     ]
     metrics = st.columns(3)
     metrics[0].metric("Подій у періоді", len(outages))
@@ -2494,19 +2484,19 @@ def _draw_generation_summary(outages: list[GenerationUnavailability]) -> None:
         "Доступно за активними записами",
         f"{sum(active_capacities):,.0f} МВт" if active_capacities else "—",
     )
-    starts = [item.start for item in outages if item.start]
-    ends = [item.end for item in outages if item.end]
+    starts = [item[3] for item in outages if item[3]]
+    ends = [item[4] for item in outages if item[4]]
     period = "—"
     if starts and ends:
         period = f"{min(starts).astimezone(KYIV):%d.%m.%Y} — {max(ends).astimezone(KYIV):%d.%m.%Y}"
     metrics[2].metric("Період покриття", period)
     rows = [
         {
-            "Блок / об'єкт": item.unit_name or "Не вказано",
-            "Тип": item.business_type or "Не вказано",
-            "Доступно, МВт": item.available_capacity_mw,
-            "Початок": item.start.astimezone(KYIV).strftime("%d.%m.%Y %H:%M") if item.start else "Не вказано",
-            "Кінець": item.end.astimezone(KYIV).strftime("%d.%m.%Y %H:%M") if item.end else "Не вказано",
+            "Блок / об'єкт": item[0] or "Не вказано",
+            "Тип": item[1] or "Не вказано",
+            "Доступно, МВт": item[2],
+            "Початок": item[3].astimezone(KYIV).strftime("%d.%m.%Y %H:%M") if item[3] else "Не вказано",
+            "Кінець": item[4].astimezone(KYIV).strftime("%d.%m.%Y %H:%M") if item[4] else "Не вказано",
         }
         for item in outages
     ]
@@ -2949,7 +2939,7 @@ def main() -> None:
             _load_gas_market_indices(str(settings.database_path), GAS_MARKET_CACHE_VERSION)
         )
     with generation_status:
-        _draw_generation_status()
+        _draw_generation_status(settings.database_path)
     with forecast:
         full_history = _load_prices(str(settings.database_path), earliest, latest)
         _draw_forecast_readiness(settings.database_path)

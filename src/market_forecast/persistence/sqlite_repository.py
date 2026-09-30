@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import hashlib
 from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -148,6 +149,23 @@ class SQLiteMarketRepository:
 
                 CREATE INDEX IF NOT EXISTS idx_collection_attempts_latest
                 ON collection_attempts (source, attempted_at_utc DESC);
+
+                CREATE TABLE IF NOT EXISTS generation_unavailability (
+                    source TEXT NOT NULL,
+                    event_id TEXT NOT NULL,
+                    bidding_zone TEXT NOT NULL,
+                    unit_name TEXT,
+                    business_type TEXT,
+                    available_capacity_mw TEXT,
+                    start_utc TEXT,
+                    end_utc TEXT,
+                    raw_artifact_id INTEGER REFERENCES raw_artifacts(id),
+                    ingested_at_utc TEXT NOT NULL,
+                    PRIMARY KEY (source, event_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_generation_unavailability_period
+                ON generation_unavailability (start_utc, end_utc, bidding_zone);
 
                 CREATE TABLE IF NOT EXISTS forecast_runs (
                     id INTEGER PRIMARY KEY,
@@ -855,6 +873,92 @@ class SQLiteMarketRepository:
                 inserted += cursor.rowcount
         return inserted
 
+    def store_generation_unavailability(
+        self,
+        artifact: StoredArtifact,
+        source_url: str,
+        fetched_at_utc: datetime,
+        bidding_zone: str,
+        records: Iterable[object],
+    ) -> int:
+        """Persist the raw A80 artifact and idempotent availability records."""
+
+        rows = list(records)
+        if not rows:
+            return 0
+        fetched_at = _utc_iso(fetched_at_utc, "fetched_at_utc")
+        self.initialize()
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """INSERT INTO raw_artifacts (
+                       sha256, source, delivery_date, source_url, content_type,
+                       local_path, byte_count, fetched_at_utc, validation_status
+                   ) VALUES (?, 'entsoe_outage', DATE(?), ?, 'application/xml', ?, ?, ?, 'validated')
+                   ON CONFLICT(source, delivery_date, sha256) DO NOTHING""",
+                (
+                    artifact.sha256, fetched_at, source_url, str(artifact.path),
+                    artifact.byte_count, fetched_at,
+                ),
+            )
+            artifact_row = connection.execute(
+                """SELECT id FROM raw_artifacts
+                   WHERE source = 'entsoe_outage' AND delivery_date = DATE(?) AND sha256 = ?""",
+                (fetched_at, artifact.sha256),
+            ).fetchone()
+            artifact_id = int(artifact_row[0]) if artifact_row else None
+            changed = 0
+            for item in rows:
+                event_id = item.event_id or _availability_fallback_id(item)
+                cursor = connection.execute(
+                    """INSERT INTO generation_unavailability (
+                           source, event_id, bidding_zone, unit_name, business_type,
+                           available_capacity_mw, start_utc, end_utc,
+                           raw_artifact_id, ingested_at_utc
+                       ) VALUES ('entsoe', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(source, event_id) DO UPDATE SET
+                           unit_name = excluded.unit_name,
+                           business_type = excluded.business_type,
+                           available_capacity_mw = excluded.available_capacity_mw,
+                           start_utc = excluded.start_utc,
+                           end_utc = excluded.end_utc,
+                           raw_artifact_id = excluded.raw_artifact_id,
+                           ingested_at_utc = excluded.ingested_at_utc""",
+                    (
+                        event_id, bidding_zone, item.unit_name, item.business_type,
+                        str(item.available_capacity_mw) if item.available_capacity_mw is not None else None,
+                        _optional_utc_iso(item.start), _optional_utc_iso(item.end),
+                        artifact_id, fetched_at,
+                    ),
+                )
+                changed += cursor.rowcount
+        return changed
+
+    def list_generation_unavailability(
+        self, period_start_utc: datetime, period_end_utc: datetime, bidding_zone: str
+    ) -> list[tuple[str | None, str | None, Decimal | None, datetime | None, datetime | None]]:
+        """Return current/future A80 records for one bidding zone."""
+
+        start = _utc_iso(period_start_utc, "period_start_utc")
+        end = _utc_iso(period_end_utc, "period_end_utc")
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """SELECT unit_name, business_type, available_capacity_mw, start_utc, end_utc
+                   FROM generation_unavailability
+                   WHERE bidding_zone = ?
+                     AND (end_utc IS NULL OR end_utc >= ?)
+                     AND (start_utc IS NULL OR start_utc < ?)
+                   ORDER BY start_utc, unit_name""",
+                (bidding_zone, start, end),
+            ).fetchall()
+        return [
+            (
+                row[0], row[1], Decimal(row[2]) if row[2] is not None else None,
+                _parse_utc(row[3]) if row[3] else None,
+                _parse_utc(row[4]) if row[4] else None,
+            )
+            for row in rows
+        ]
+
     def list_flows(
         self, period_start_utc: datetime, period_end_utc: datetime
     ) -> list[tuple[datetime, datetime, str, str, Decimal]]:
@@ -1483,6 +1587,18 @@ def _utc_iso(value: datetime, name: str) -> str:
     if value.tzinfo is None or value.utcoffset() != timezone.utc.utcoffset(None):
         raise ValueError(f"{name} must use UTC")
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _optional_utc_iso(value: datetime | None) -> str | None:
+    return _utc_iso(value, "timestamp") if value is not None else None
+
+
+def _availability_fallback_id(item: object) -> str:
+    values = "|".join(
+        str(getattr(item, name, None))
+        for name in ("unit_name", "business_type", "available_capacity_mw", "start", "end")
+    )
+    return hashlib.sha256(values.encode("utf-8")).hexdigest()
 
 
 def _parse_utc(value: str) -> datetime:

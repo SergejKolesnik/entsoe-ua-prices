@@ -14,6 +14,7 @@ Phase 5: publication foundation. Durable ingestion, automated refresh, analytics
 
 - This repository is independent from `Solar-Monitoring-System`; failures here must not affect the daily solar forecast.
 - Market Operator and ENTSO-E are separate source adapters behind a raw-response boundary.
+- The System Status tab is read-only over persisted ENTSO-E A80 generation-unavailability records; it reuses the existing GitHub Actions `ENTSOE_TOKEN` through the context refresh and never calls ENTSO-E directly from Streamlit.
 - Domain timestamps are timezone-aware and normalized to UTC.
 - Missing settlement periods are validation errors, not zero-valued observations.
 - The first gas-market UI is additive and read-only: it shows internal monthly procurement price composition, same-calendar-month comparisons, and aggregate daily plan/actual consumption from normalized database tables. It does not expose source worksheet names or claim to provide public exchange/hub benchmarks yet.

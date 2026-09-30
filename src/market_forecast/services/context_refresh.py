@@ -17,6 +17,7 @@ from market_forecast.sources import (
     NbuExchangeRateSource,
     OpenMeteoSource,
     OperatorMarketSource,
+    parse_generation_unavailability,
     parse_open_meteo_forecast,
 )
 from market_forecast.weather_locations import WEATHER_LOCATIONS
@@ -206,6 +207,26 @@ def refresh_market_context(
         )
 
     execute("open_meteo", dates.tomorrow, refresh_weather_forecast)
+
+    def refresh_generation_unavailability() -> int:
+        raw = entsoe.fetch_generation_unavailability(
+            attempted_at - timedelta(days=1),
+            attempted_at + timedelta(days=30),
+            UKRAINE_ZONE,
+        )
+        records = parse_generation_unavailability(raw.content)
+        artifact = service.artifact_store.save(
+            raw.content, "entsoe_outage", dates.today, "xml"
+        )
+        return repository.store_generation_unavailability(
+            artifact,
+            raw.source_url,
+            attempted_at,
+            UKRAINE_ZONE,
+            records,
+        )
+
+    execute("entsoe_outages", dates.today, refresh_generation_unavailability)
     for market in NEIGHBOR_MARKETS:
         execute(
             f"entsoe_price_{market.code}",
