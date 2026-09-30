@@ -2733,7 +2733,7 @@ def _draw_neighbor_markets(
 
 
 def main() -> None:
-    st.set_page_config(page_title="RDN Market Intelligence", page_icon="⚡", layout="wide")
+    st.set_page_config(page_title="RDN Energy Intelligence", page_icon="⚡", layout="wide")
     _inject_styles()
     settings = Settings.from_environment()
     _anonymous_analytics(settings)
@@ -2799,20 +2799,19 @@ def main() -> None:
         return
 
     tab_labels = [
-        "Огляд",
-        "Тенденції",
-        "Дифтариф НЗФ",
-        "Фактори ціни",
-        "ВДР",
-        "Ринок газу",
-        "Газовий ринок УЕБ",
-        "Прогноз",
-        "Сусідні ринки",
+        "Електро: огляд",
+        "Електро: тенденції",
+        "Електро: дифтариф",
+        "Електро: фактори",
+        "Електро: ВДР",
+        "Газ: закупівля",
+        "Газ: УЕБ",
+        "Електро: сусідні ринки",
     ]
     if show_technical:
         tab_labels.append("Технічний стан")
     tabs = st.tabs(tab_labels)
-    overview, trends, diff_tariff, drivers, intraday_market, gas_market, public_gas_market, forecast, neighbors = tabs[:9]
+    overview, trends, diff_tariff, drivers, intraday_market, gas_market, public_gas_market, neighbors = tabs[:8]
     with overview:
         _draw_daily_market_brief(
             settings.database_path, frame, date_from, date_to, selected_date
@@ -2836,15 +2835,10 @@ def main() -> None:
         _draw_public_gas_market(
             _load_gas_market_indices(str(settings.database_path), GAS_MARKET_CACHE_VERSION)
         )
-    with forecast:
-        full_history = _load_prices(str(settings.database_path), earliest, latest)
-        _draw_forecast_readiness(settings.database_path)
-        st.divider()
-        _draw_forecast(full_history, latest)
     with neighbors:
         _draw_neighbor_markets(settings.database_path, date_from, date_to, selected_date)
     if show_technical:
-        with tabs[10]:
+        with tabs[8]:
             st.markdown("### Якість і повнота даних")
             _draw_quality(settings.database_path, date_from, date_to)
             st.divider()

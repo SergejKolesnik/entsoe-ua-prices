@@ -94,7 +94,7 @@ python -m market_forecast.cli backfill --source operator --from 2026-07-19 --to 
 python -m streamlit run streamlit_app.py
 ```
 
-Streamlit prints the local browser address, normally `http://localhost:8501`. The dashboard reads `data/market_forecast.sqlite3` by default and does not contact or modify SkyGrid Solar. When `DATABASE_URL` is configured, the dashboard and collectors use the dedicated Neon PostgreSQL database instead. Its **Прогноз** tab shows a transparent one-step baseline for the first delivery day after the latest published DAM prices.
+Streamlit prints the local browser address, normally `http://localhost:8501`. The dashboard reads `data/market_forecast.sqlite3` by default and does not contact or modify SkyGrid Solar. When `DATABASE_URL` is configured, the dashboard and collectors use the dedicated Neon PostgreSQL database instead. Forecast collection and immutable baseline snapshots continue in the background, while the forecast visualization is temporarily hidden until it becomes decision-useful.
 
 The public Streamlit Community Cloud deployment receives a real browser visit
 every four hours from `.github/workflows/keep-streamlit-awake.yml`. A headless
