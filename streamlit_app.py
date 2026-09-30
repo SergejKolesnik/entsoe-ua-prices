@@ -186,16 +186,6 @@ def _inject_styles() -> None:
         .analysis-context-card.forecast .analysis-context-value { color: #7de0aa; }
         .analysis-context-meta { color: #aab4c2; font-size: 11px; line-height: 1.45; }
         .analysis-context-meta strong { color: #e8edf4; }
-        .resource-section {
-            margin: 18px 0 4px; padding: 10px 14px;
-            border-radius: 8px; background: rgba(17,23,34,.86);
-            border: 1px solid rgba(255,255,255,.08);
-            border-left: 4px solid #378add;
-        }
-        .resource-section.gas { border-left-color: #58c68d; }
-        .resource-section-title { color: #dce8f7; font-size: 17px; font-weight: 800; }
-        .resource-section.gas .resource-section-title { color: #bff0d2; }
-        .resource-section-note { color: #8d99aa; font-size: 11px; margin-left: 9px; }
         .daily-review-date {
             display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 14px;
             margin: 0 0 13px; padding: 12px 15px;
@@ -2808,47 +2798,42 @@ def main() -> None:
         st.warning("У вибраному періоді немає даних.")
         return
 
-    st.markdown(
-        '<div class="resource-section"><span class="resource-section-title">⚡ Електроенергія</span>'
-        '<span class="resource-section-note">РДН, ВДР та сусідні електричні ринки</span></div>',
-        unsafe_allow_html=True,
-    )
-    electricity_tabs = st.tabs(
-        ["Огляд", "Тенденції", "Дифтариф НЗФ", "Фактори ціни", "ВДР", "Сусідні ринки"]
-    )
-    overview, trends, diff_tariff, drivers, intraday_market, neighbors = electricity_tabs
-    st.markdown(
-        '<div class="resource-section gas"><span class="resource-section-title">🔥 Газ</span>'
-        '<span class="resource-section-note">Внутрішня закупівля та публічні індекси УЕБ</span></div>',
-        unsafe_allow_html=True,
-    )
-    gas_tabs = st.tabs(["Закупівля", "УЕБ"])
-    gas_market, public_gas_market = gas_tabs
-    with overview:
-        _draw_daily_market_brief(
-            settings.database_path, frame, date_from, date_to, selected_date
+    electricity_section, gas_section = st.tabs(["⚡ Електроенергія", "🔥 Газ"])
+    with electricity_section:
+        electricity_tabs = st.tabs(
+            ["Огляд", "Тенденції", "Дифтариф НЗФ", "Фактори ціни", "ВДР", "Сусідні ринки"]
         )
-        _draw_overview(frame, selected_date)
-        _draw_market_volume(settings.database_path, selected_date)
-    with trends:
-        full_history = _load_prices(str(settings.database_path), earliest, latest)
-        _draw_trends(frame, full_history, selected_date)
-    with diff_tariff:
-        _draw_rdn_diff_tariff(selected_date)
-    with drivers:
-        _draw_price_drivers(
-            settings.database_path, frame, date_from, date_to, selected_date
-        )
-    with intraday_market:
-        _draw_intraday_market(settings.database_path, frame, date_from, date_to, selected_date)
-    with gas_market:
-        _draw_gas_market(settings.database_path)
-    with public_gas_market:
-        _draw_public_gas_market(
-            _load_gas_market_indices(str(settings.database_path), GAS_MARKET_CACHE_VERSION)
-        )
-    with neighbors:
-        _draw_neighbor_markets(settings.database_path, date_from, date_to, selected_date)
+        overview, trends, diff_tariff, drivers, intraday_market, neighbors = electricity_tabs
+    with gas_section:
+        gas_tabs = st.tabs(["Закупівля", "УЕБ"])
+        gas_market, public_gas_market = gas_tabs
+    with electricity_section:
+        with overview:
+            _draw_daily_market_brief(
+                settings.database_path, frame, date_from, date_to, selected_date
+            )
+            _draw_overview(frame, selected_date)
+            _draw_market_volume(settings.database_path, selected_date)
+        with trends:
+            full_history = _load_prices(str(settings.database_path), earliest, latest)
+            _draw_trends(frame, full_history, selected_date)
+        with diff_tariff:
+            _draw_rdn_diff_tariff(selected_date)
+        with drivers:
+            _draw_price_drivers(
+                settings.database_path, frame, date_from, date_to, selected_date
+            )
+        with intraday_market:
+            _draw_intraday_market(settings.database_path, frame, date_from, date_to, selected_date)
+        with neighbors:
+            _draw_neighbor_markets(settings.database_path, date_from, date_to, selected_date)
+    with gas_section:
+        with gas_market:
+            _draw_gas_market(settings.database_path)
+        with public_gas_market:
+            _draw_public_gas_market(
+                _load_gas_market_indices(str(settings.database_path), GAS_MARKET_CACHE_VERSION)
+            )
     if show_technical:
         with st.expander("Технічний стан", expanded=True):
             st.markdown("### Якість і повнота даних")
