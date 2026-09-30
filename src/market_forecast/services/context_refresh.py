@@ -231,7 +231,7 @@ def refresh_market_context(
 
     def refresh_system_metric(metric: str, fetcher, artifact_name: str) -> int:
         raw = fetcher(
-            attempted_at - timedelta(days=1), attempted_at + timedelta(hours=1), UKRAINE_ZONE
+            attempted_at - timedelta(days=31), attempted_at, UKRAINE_ZONE
         )
         records = parse_system_metrics(raw.content, metric)
         artifact = service.artifact_store.save(raw.content, artifact_name, dates.today, "xml")

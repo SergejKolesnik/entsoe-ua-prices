@@ -2466,7 +2466,7 @@ def _load_system_metrics(database_path: str):
         result = {}
         for metric in ("actual_generation", "actual_load", "installed_capacity"):
             result[metric] = repository.list_system_metrics(
-                metric, now - timedelta(days=2), now + timedelta(hours=1), "10Y1001C--00003F"
+                metric, now - timedelta(days=31), now + timedelta(hours=1), "10Y1001C--00003F"
             )
         return result, None
     except Exception:
