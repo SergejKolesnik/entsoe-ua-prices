@@ -189,6 +189,29 @@ jobs:
       - name: Verify gas import configuration
         shell: bash
         run: test -n "$DATABASE_URL" && test -n "$GAS_SPREADSHEET_ID" && test -n "${{ inputs.gas_month }}" && test -n "${{ inputs.gas_sheet }}"
+      - name: Discover fact worksheet names
+        shell: bash
+        run: |
+          python - <<'PY'
+          import html
+          import os
+          import re
+          import requests
+
+          url = f"https://docs.google.com/spreadsheets/d/{os.environ['GAS_SPREADSHEET_ID']}/edit"
+          response = requests.get(url, timeout=30)
+          response.raise_for_status()
+          page = html.unescape(response.text)
+          candidates = set()
+          for pattern in (r'"title":"([^"]+)"', r'aria-label="([^"]+)"'):
+              for value in re.findall(pattern, page):
+                  lowered = value.lower()
+                  if any(token in lowered for token in ("факт", "fact", "верес", "sep", "2026")):
+                      candidates.add(value)
+          print("Candidate worksheet names:")
+          for value in sorted(candidates):
+              print(value)
+          PY
       - name: Import verified daily gas facts
         run: |
           python -m market_forecast.cli import-gas-fact-sheet \
