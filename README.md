@@ -131,6 +131,8 @@ Keep Windows configured for the Kyiv timezone. If the computer is off, `StartWhe
 
 For the published dashboard, `.github/workflows/refresh-market-data.yml` runs the same finite jobs in GitHub Actions. It requests the Ukrainian DAM at 14:15, 15:00, 16:00, and 17:00, then refreshes market context at 17:20 in the `Europe/Kyiv` timezone. Scheduled workflows run only from GitHub's default branch and require repository secrets named `DATABASE_URL` and `ENTSOE_TOKEN`. The workflow can also be started manually for `operator`, `context`, or `all` without exposing either secret in logs.
 
+The **Стан системи** tab uses the same `ENTSOE_TOKEN` from the existing context refresh. The collector requests ENTSO-E A80 generation-unit unavailability, preserves the raw response, and stores compact event records for the dashboard. Streamlit does not call ENTSO-E directly and therefore does not need a second token. PostgreSQL deployments must apply `migrations/009_generation_unavailability.sql` before enabling this collector.
+
 After every successful refresh, the same finite job also freezes the first still-unknown delivery day as an immutable `baseline-v1` snapshot. Manual snapshot generation is available for diagnostics:
 
 ```powershell
