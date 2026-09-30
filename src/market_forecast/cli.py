@@ -769,7 +769,10 @@ def main(argv: list[str] | None = None) -> int:
                     days, datetime.now(timezone.utc), allow_missing_actual=args.allow_partial
                 )
         print(json.dumps({"mode": "write" if args.write else "dry-run", "days": len(days),
-                          "actual_total_m3": str(sum(item.actual_volume_m3 for item in days)),
+                          "actual_total_m3": str(sum(
+                              item.actual_volume_m3 for item in days
+                              if item.actual_volume_m3 is not None
+                          )),
                           "written": written, "month": args.month.isoformat(),
                           "sheet": args.sheet_name, "total_tolerance_m3": str(args.total_tolerance_m3),
                           "raw_sha256": artifact.sha256}))
