@@ -514,8 +514,9 @@ class SQLiteMarketRepository:
                            actual_volume_m3 = excluded.actual_volume_m3,
                            source_sheet = excluded.source_sheet,
                            imported_at_utc = excluded.imported_at_utc""",
-                    (item.delivery_date.isoformat(), str(item.planned_volume_m3),
-                     str(item.actual_volume_m3), item.source_sheet, imported_at),
+                     (item.delivery_date.isoformat(), str(item.planned_volume_m3),
+                      str(item.actual_volume_m3) if item.actual_volume_m3 is not None else None,
+                      item.source_sheet, imported_at),
                 )
         return len(rows)
 
