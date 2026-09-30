@@ -66,6 +66,11 @@ on:
         description: Exact read-only Google Sheets worksheet name (used with gas_fact)
         required: false
         type: string
+      gas_tolerance_m3:
+        description: Allowed source rounding difference in monthly gas facts
+        required: false
+        default: "3"
+        type: string
 
 permissions:
   contents: read
@@ -195,6 +200,7 @@ jobs:
             --month "${{ inputs.gas_month }}" \
             --sheet "${{ inputs.gas_sheet }}" \
             --allow-partial \
+            --total-tolerance-m3 "${{ inputs.gas_tolerance_m3 }}" \
             --write
 
   context:
