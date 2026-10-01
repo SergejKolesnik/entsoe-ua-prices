@@ -276,6 +276,11 @@ statistics. The integration disables autocapture and session recording, creates 
 person profiles, and does not send filters, inputs, names, or email addresses.
 `POSTHOG_HOST` optionally selects the PostHog region; its default is the EU host.
 
+The optional Telegram report workflow `.github/workflows/send-usage-report.yml`
+runs daily at 06:00 UTC and reports the previous Kyiv calendar day. Configure
+repository variables `POSTHOG_HOST` and `POSTHOG_PROJECT_ID`, plus secrets
+`POSTHOG_PERSONAL_API_KEY`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID`.
+
 The gas module starts with a read-only import boundary for the existing monthly
 Google Sheets worksheets. The source spreadsheet remains authoritative; the
 application never writes to it and Streamlit will later read normalized database
