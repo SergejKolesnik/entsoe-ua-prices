@@ -68,7 +68,7 @@ ORDER BY app_name
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(request, timeout=120) as response:
             return json.load(response)
     except urllib.error.HTTPError as error:
         body = error.read().decode("utf-8", errors="replace")[:500]
