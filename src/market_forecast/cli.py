@@ -109,6 +109,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     gas_import.add_argument("--month", required=True, type=date.fromisoformat)
     gas_import.add_argument("--sheet", required=True, dest="sheet_name")
+    gas_current = subparsers.add_parser(
+        "import-gas-current",
+        help="Discover and import the current monthly gas worksheet; write only with --write.",
+    )
+    gas_current.add_argument("--month", type=date.fromisoformat,
+                             default=date.today().replace(day=1))
+    gas_current.add_argument("--write", action="store_true")
     gas_fact_import = subparsers.add_parser(
         "import-gas-fact-sheet",
         help="Validate one commercial gas-consumption fact sheet; write only with --write.",
@@ -710,6 +717,36 @@ def main(argv: list[str] | None = None) -> int:
             f"Gas procurement imported: month={args.month:%Y-%m} "
             f"months={stored_months} days={stored_days} actual_days={actual_days}"
         )
+        return 0
+    if args.command == "import-gas-current":
+        from datetime import datetime, timezone
+        from market_forecast.config import Settings
+        from market_forecast.parsers import parse_gas_procurement_csv
+        from market_forecast.persistence import create_market_repository
+        from market_forecast.services.gas_procurement_discovery import current_gas_worksheet_candidates
+        from market_forecast.sources import GoogleSheetsGasSource
+
+        if args.month.day != 1:
+            raise SystemExit("--month must be the first day of a month (YYYY-MM-01)")
+        settings = Settings.from_environment()
+        source = GoogleSheetsGasSource(settings.require_gas_spreadsheet_id(), settings.request_timeout_seconds)
+        failures = []
+        for sheet_name in current_gas_worksheet_candidates(args.month):
+            try:
+                response = source.fetch_worksheet(sheet_name)
+                month, days = parse_gas_procurement_csv(response.require_content(), args.month, sheet_name)
+                break
+            except Exception as exc:
+                failures.append(f"{sheet_name}: {exc}")
+        else:
+            raise SystemExit("No current gas worksheet matched the audited naming convention. "
+                             + " | ".join(failures))
+        stored = None
+        if args.write:
+            repository = create_market_repository(settings.database_path, settings.database_url)
+            stored = repository.store_gas_procurement(month, days, datetime.now(timezone.utc))
+        print(json.dumps({"mode": "write" if args.write else "dry-run", "month": args.month.isoformat(),
+                          "sheet": sheet_name, "stored": stored, "days": len(days)}, ensure_ascii=False))
         return 0
     if args.command == "import-gas-legacy-price-sheet":
         from datetime import datetime, timezone
