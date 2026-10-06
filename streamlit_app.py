@@ -2173,6 +2173,37 @@ def _draw_market_volume(database_path: Path, selected_date: date) -> None:
     st.plotly_chart(figure, width="stretch")
 
 
+def _draw_daily_market_volume_history(
+    database_path: Path, date_from: date, date_to: date
+) -> None:
+    """Show the traded DAM volume for each complete day in the selected range."""
+
+    repository = _repository(database_path)
+    start = datetime.combine(date_from, time.min, KYIV).astimezone(timezone.utc)
+    end = datetime.combine(date_to + timedelta(days=1), time.min, KYIV).astimezone(timezone.utc)
+    rows = [
+        (timestamp.astimezone(KYIV).date(), float(volume))
+        for timestamp, volume in repository.list_price_volumes(SOURCE, start, end)
+        if volume is not None
+    ]
+    if not rows:
+        st.caption("Добові обсяги торгів РДН у вибраному періоді ще не завантажені.")
+        return
+    daily = pd.DataFrame(rows, columns=["Дата", "Обсяг, МВт·год"]).groupby(
+        "Дата", as_index=False
+    )["Обсяг, МВт·год"].sum()
+    st.markdown("#### Добовий обсяг торгів РДН")
+    st.caption("Сума погодинних обсягів продажу за кожну дату в доступному періоді.")
+    figure = go.Figure(go.Bar(
+        x=daily["Дата"], y=daily["Обсяг, МВт·год"],
+        name="Обсяг РДН", marker_color=BLUE,
+        hovertemplate="%{x|%d.%m.%Y}<br>%{y:,.0f} МВт·год<extra></extra>",
+    ))
+    figure.update_layout(**_chart_layout(350, "МВт·год"))
+    figure.update_xaxes(title="Дата")
+    st.plotly_chart(figure, width="stretch")
+
+
 def _draw_price_drivers(
     database_path: Path,
     frame: pd.DataFrame,
@@ -2813,6 +2844,7 @@ def main() -> None:
             )
             _draw_overview(frame, selected_date)
             _draw_market_volume(settings.database_path, selected_date)
+            _draw_daily_market_volume_history(settings.database_path, date_from, date_to)
         with trends:
             full_history = _load_prices(str(settings.database_path), earliest, latest)
             _draw_trends(frame, full_history, selected_date)

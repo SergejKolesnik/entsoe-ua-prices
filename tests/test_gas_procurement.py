@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 from market_forecast.parsers import parse_gas_procurement_csv
 from market_forecast.persistence import SQLiteMarketRepository
 from market_forecast.sources import GoogleSheetsGasSource
+from market_forecast.services.gas_procurement_discovery import current_gas_worksheet_candidates
 
 
 CSV = '''"Потребление природного газа по промплощадке завода в сентябре 2026г."
@@ -26,6 +27,11 @@ CSV = '''"Потребление природного газа по промпл
 
 
 class GasProcurementTests(unittest.TestCase):
+    def test_current_worksheet_candidates_keep_audited_month_naming(self):
+        candidates = current_gas_worksheet_candidates(date(2026, 10, 1))
+        self.assertEqual(candidates[0], "10 ціна газу у жовтні 26")
+        self.assertIn("10 цена газа в октябре 26", candidates)
+
     def test_parser_separates_commodity_and_delivery_components(self):
         month, days = parse_gas_procurement_csv(
             CSV, date(2026, 9, 1), "9 ціна газу у вересні 26"

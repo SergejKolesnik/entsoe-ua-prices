@@ -175,6 +175,29 @@ jobs:
       - name: Refresh public gas-market indicators
         run: python -m market_forecast.cli import-gas-indices --write
 
+  gas_procurement:
+    if: >-
+      github.event_name == 'schedule' && github.event.schedule == '15 10 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      GAS_SPREADSHEET_ID: ${{ secrets.GAS_SPREADSHEET_ID }}
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify gas import configuration
+        shell: bash
+        run: test -n "$DATABASE_URL" && test -n "$GAS_SPREADSHEET_ID"
+      - name: Refresh current monthly gas procurement
+        run: python -m market_forecast.cli import-gas-current --write
+
   gas_fact:
     if: github.event_name == 'workflow_dispatch' && inputs.task == 'gas_fact'
     runs-on: ubuntu-latest
