@@ -31,6 +31,7 @@ on:
           - intraday
           - context
           - gas_indices
+          - gas_procurement
           - gas_fact
           - diagnose_operator
           - backfill_neighbors
@@ -177,7 +178,8 @@ jobs:
 
   gas_procurement:
     if: >-
-      github.event_name == 'schedule' && github.event.schedule == '15 10 * * *'
+      (github.event_name == 'workflow_dispatch' && inputs.task == 'gas_procurement') ||
+      (github.event_name == 'schedule' && github.event.schedule == '15 10 * * *')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
