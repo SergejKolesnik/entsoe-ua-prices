@@ -1278,12 +1278,21 @@ def _draw_power_profile(
 ) -> None:
     """Render internal hourly electricity consumption and generation analytics."""
 
-    profile = _load_power_profile(str(database_path), date_from, date_to)
     st.markdown("### Споживання електроенергії")
     st.caption(
         "Дані з профілю споживання: план і факт купівлі, технологічне та силове "
         "споживання, ГПУ, СЕС і віддача в мережу. Порожні значення не замінюються нулем."
     )
+    try:
+        profile = _load_power_profile(str(database_path), date_from, date_to)
+    except Exception:
+        # This optional source must not prevent the rest of the electricity
+        # tabs from rendering when its table or adapter is temporarily stale.
+        st.warning(
+            "Профіль споживання тимчасово недоступний. "
+            "Інші вкладки електроенергії працюють незалежно."
+        )
+        return
     if profile.empty:
         st.info("Профіль споживання ще не імпортовано до бази даних.")
         return
@@ -2925,12 +2934,12 @@ def main() -> None:
             )
             _draw_overview(frame, selected_date)
             _draw_market_volume(settings.database_path, selected_date)
-            _draw_daily_market_volume_history(settings.database_path, date_from, date_to)
         with consumption:
             _draw_power_profile(settings.database_path, date_from, date_to, selected_date)
         with trends:
             full_history = _load_prices(str(settings.database_path), earliest, latest)
             _draw_trends(frame, full_history, selected_date)
+            _draw_daily_market_volume_history(settings.database_path, date_from, date_to)
         with diff_tariff:
             _draw_rdn_diff_tariff(selected_date)
         with drivers:

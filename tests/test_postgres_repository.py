@@ -68,6 +68,17 @@ class PostgresRepositoryTests(unittest.TestCase):
             ("2026-08-20", "2026-08-20T12:00:00+00:00", "12.30", 4),
         )
 
+    def test_postgres_exposes_power_profile_reader(self):
+        repository = PostgresMarketRepository(
+            "postgresql://owner:secret@example.invalid/neondb"
+        )
+
+        with patch.object(repository, "_connect") as connect:
+            connection = connect.return_value.__enter__.return_value
+            connection.execute.return_value.fetchone.return_value = (1,)
+            connection.execute.return_value.fetchall.return_value = []
+            self.assertEqual(repository.list_power_profile(), [])
+
 
 if __name__ == "__main__":
     unittest.main()

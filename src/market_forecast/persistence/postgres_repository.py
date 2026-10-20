@@ -77,6 +77,16 @@ class PostgresMarketRepository(SQLiteMarketRepository):
         if row != (1,):
             raise RuntimeError("PostgreSQL connectivity check failed")
 
+    def list_power_profile(
+        self, date_from: date | None = None, date_to: date | None = None
+    ) -> list[tuple]:
+        """Return the internal profile through the PostgreSQL adapter contract."""
+
+        # Keep this entry point explicit for cloud deployments.  The inherited
+        # implementation uses the same parameterized repository contract, but
+        # an explicit method prevents stale adapters from hiding this capability.
+        return super().list_power_profile(date_from, date_to)
+
     def _connect(self) -> _ConnectionAdapter:
         try:
             import psycopg
