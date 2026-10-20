@@ -1,9 +1,5 @@
 name: Refresh market data
 
-permissions:
-  contents: read
-  id-token: write
-
 on:
   schedule:
     - cron: "15 14 * * *"
@@ -211,6 +207,9 @@ jobs:
       (github.event_name == 'schedule' && github.event.schedule == '15 10 * * *')
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       POWER_PROFILE_SPREADSHEET_ID: 1o95uNd1pUkVH_A4zZpKCLEE17YlVaNWGa6gtoyDSRpE
