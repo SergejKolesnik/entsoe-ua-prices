@@ -7,8 +7,9 @@ from .weather_forecast import WeatherForecastPoint
 from .gas_procurement import GasConsumptionDay, GasProcurementMonth
 from .intraday_market import IntradayMarketResult
 from .gas_indices import GasIndexObservation
+from .power_profile import PowerProfileObservation
 
 __all__ = [
     "CrossBorderFlow", "GasConsumptionDay", "GasProcurementMonth",
-    "GasIndexObservation", "HourlyMarketPrice", "IntradayMarketResult", "SourceObservation", "WeatherForecastPoint",
+    "GasIndexObservation", "HourlyMarketPrice", "IntradayMarketResult", "PowerProfileObservation", "SourceObservation", "WeatherForecastPoint",
 ]

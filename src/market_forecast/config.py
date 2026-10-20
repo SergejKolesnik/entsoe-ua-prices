@@ -14,6 +14,8 @@ class Settings:
     entsoe_token: str | None
     database_url: str | None = None
     gas_spreadsheet_id: str | None = None
+    power_profile_spreadsheet_id: str | None = None
+    google_sheets_access_token: str | None = None
     posthog_api_key: str | None = None
     posthog_host: str = "https://eu.i.posthog.com"
     request_timeout_seconds: float = 30.0
@@ -32,6 +34,8 @@ class Settings:
             entsoe_token=token,
             database_url=os.getenv("DATABASE_URL") or None,
             gas_spreadsheet_id=os.getenv("GAS_SPREADSHEET_ID") or None,
+            power_profile_spreadsheet_id=os.getenv("POWER_PROFILE_SPREADSHEET_ID") or None,
+            google_sheets_access_token=os.getenv("GOOGLE_SHEETS_ACCESS_TOKEN") or None,
             posthog_api_key=os.getenv("POSTHOG_API_KEY") or None,
             posthog_host=os.getenv("POSTHOG_HOST", "https://eu.i.posthog.com").rstrip("/"),
             request_timeout_seconds=timeout,
@@ -52,3 +56,17 @@ class Settings:
         if not self.gas_spreadsheet_id:
             raise RuntimeError("GAS_SPREADSHEET_ID is required for gas imports")
         return self.gas_spreadsheet_id
+
+    def require_power_profile_spreadsheet_id(self) -> str:
+        """Return the configured read-only internal profile Sheet id."""
+
+        if not self.power_profile_spreadsheet_id:
+            raise RuntimeError("POWER_PROFILE_SPREADSHEET_ID is required for power-profile imports")
+        return self.power_profile_spreadsheet_id
+
+    def require_google_sheets_access_token(self) -> str:
+        """Return the short-lived OAuth token used for private Sheets reads."""
+
+        if not self.google_sheets_access_token:
+            raise RuntimeError("GOOGLE_SHEETS_ACCESS_TOKEN is required for private Sheet imports")
+        return self.google_sheets_access_token

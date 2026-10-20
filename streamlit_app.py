@@ -687,6 +687,24 @@ def _load_price_volumes(
 
 
 @st.cache_data(ttl=300)
+def _load_power_profile(database_path: str, date_from: date, date_to: date) -> pd.DataFrame:
+    """Load imported internal electricity consumption and generation profile."""
+
+    rows = _repository(database_path).list_power_profile(date_from, date_to)
+    columns = [
+        "delivery_date", "hour", "planned_purchase_mwh", "purchased_mwh", "gpu_mwh",
+        "ses_mwh", "grid_export_mwh", "technology_consumption_mwh",
+        "power_consumption_mwh", "imbalance_mwh", "source_sheet", "imported_at_utc",
+    ]
+    frame = pd.DataFrame(rows, columns=columns)
+    if frame.empty:
+        return frame
+    for column in columns[2:10]:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    return frame
+
+
+@st.cache_data(ttl=300)
 def _load_gas_procurement(database_path: str) -> pd.DataFrame:
     """Load normalized monthly gas procurement aggregates from app storage."""
 
@@ -1253,6 +1271,69 @@ def _draw_daily_market_brief(
             f"{weather['forecast_vintage_utc'].astimezone(KYIV).strftime('%d.%m %H:%M')}. "
             "Він описує погодний фон і не подається як доведена причина зміни ціни."
         )
+
+
+def _draw_power_profile(
+    database_path: Path, date_from: date, date_to: date, selected_date: date
+) -> None:
+    """Render internal hourly electricity consumption and generation analytics."""
+
+    profile = _load_power_profile(str(database_path), date_from, date_to)
+    st.markdown("### Споживання електроенергії")
+    st.caption(
+        "Дані з профілю споживання: план і факт купівлі, технологічне та силове "
+        "споживання, ГПУ, СЕС і віддача в мережу. Порожні значення не замінюються нулем."
+    )
+    if profile.empty:
+        st.info("Профіль споживання ще не імпортовано до бази даних.")
+        return
+    daily = profile.groupby("delivery_date", as_index=False).agg(
+        planned_purchase_mwh=("planned_purchase_mwh", "sum"),
+        purchased_mwh=("purchased_mwh", "sum"),
+        technology_consumption_mwh=("technology_consumption_mwh", "sum"),
+        power_consumption_mwh=("power_consumption_mwh", "sum"),
+        gpu_mwh=("gpu_mwh", "sum"), ses_mwh=("ses_mwh", "sum"),
+        grid_export_mwh=("grid_export_mwh", "sum"),
+    )
+    daily["total_consumption_mwh"] = daily[[
+        "technology_consumption_mwh", "power_consumption_mwh"
+    ]].sum(axis=1, min_count=1)
+    selected = profile[profile["delivery_date"] == selected_date].sort_values("hour")
+    if selected.empty:
+        selected = profile.sort_values(["delivery_date", "hour"]).tail(24)
+        selected_date = selected["delivery_date"].iloc[0]
+    metrics = st.columns(4)
+    selected_day = daily[daily["delivery_date"] == selected_date]
+    if not selected_day.empty:
+        row = selected_day.iloc[0]
+        metrics[0].metric("Куплено за добу", f"{row['purchased_mwh']:,.1f} МВт·год".replace(",", " "))
+        metrics[1].metric("Споживання за добу", f"{row['total_consumption_mwh']:,.1f} МВт·год".replace(",", " "))
+        metrics[2].metric("Технологічне", f"{row['technology_consumption_mwh']:,.1f} МВт·год".replace(",", " "))
+        metrics[3].metric("Силове", f"{row['power_consumption_mwh']:,.1f} МВт·год".replace(",", " "))
+    st.markdown("#### Добова динаміка плану, факту та споживання")
+    daily_figure = go.Figure()
+    for column, label, color in (
+        ("planned_purchase_mwh", "План купівлі", MUTED),
+        ("purchased_mwh", "Факт купівлі", AMBER),
+        ("total_consumption_mwh", "Загальне споживання", BLUE),
+    ):
+        daily_figure.add_trace(go.Scatter(x=daily["delivery_date"], y=daily[column], name=label, mode="lines+markers", line=dict(color=color, width=2)))
+    daily_figure.update_layout(**_chart_layout(360, "МВт·год за добу"))
+    daily_figure.update_xaxes(title="Дата")
+    st.plotly_chart(daily_figure, width="stretch")
+    st.markdown(f"#### Погодинний профіль · {selected_date:%d.%m.%Y}")
+    hourly_figure = go.Figure()
+    for column, label, color in (
+        ("technology_consumption_mwh", "Технологічне споживання", AMBER),
+        ("power_consumption_mwh", "Силове споживання", BLUE),
+        ("gpu_mwh", "ГПУ", "#58c68d"),
+        ("ses_mwh", "СЕС", "#f4c542"),
+        ("grid_export_mwh", "Віддача в мережу", MUTED),
+    ):
+        hourly_figure.add_trace(go.Scatter(x=selected["hour"], y=selected[column], name=label, mode="lines+markers", line=dict(color=color, width=2)))
+    hourly_figure.update_layout(**_chart_layout(360, "МВт·год за годину"))
+    hourly_figure.update_xaxes(title="Година", dtick=2)
+    st.plotly_chart(hourly_figure, width="stretch")
 
 
 @st.cache_data(ttl=300)
@@ -2831,9 +2912,9 @@ def main() -> None:
     electricity_section, gas_section = st.tabs(["⚡ Електроенергія", "🔥 Газ"])
     with electricity_section:
         electricity_tabs = st.tabs(
-            ["Огляд", "Тенденції", "Дифтариф НЗФ", "Фактори ціни", "ВДР", "Сусідні ринки"]
+            ["Огляд", "Споживання", "Тенденції", "Дифтариф НЗФ", "Фактори ціни", "ВДР", "Сусідні ринки"]
         )
-        overview, trends, diff_tariff, drivers, intraday_market, neighbors = electricity_tabs
+        overview, consumption, trends, diff_tariff, drivers, intraday_market, neighbors = electricity_tabs
     with gas_section:
         gas_tabs = st.tabs(["Закупівля", "УЕБ"])
         gas_market, public_gas_market = gas_tabs
@@ -2845,6 +2926,8 @@ def main() -> None:
             _draw_overview(frame, selected_date)
             _draw_market_volume(settings.database_path, selected_date)
             _draw_daily_market_volume_history(settings.database_path, date_from, date_to)
+        with consumption:
+            _draw_power_profile(settings.database_path, date_from, date_to, selected_date)
         with trends:
             full_history = _load_prices(str(settings.database_path), earliest, latest)
             _draw_trends(frame, full_history, selected_date)
