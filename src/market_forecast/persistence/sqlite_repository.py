@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 from market_forecast.domain import (
     CrossBorderFlow, GasConsumptionDay, GasProcurementMonth,
-    HourlyMarketPrice, IntradayMarketResult, WeatherForecastPoint,
+    HourlyMarketPrice, IntradayMarketResult, PowerProfileObservation, WeatherForecastPoint,
 )
 from market_forecast.persistence.raw_artifacts import StoredArtifact
 from market_forecast.domain.gas_history import GasHistoryMonth
@@ -136,6 +136,25 @@ class SQLiteMarketRepository:
 
                 CREATE INDEX IF NOT EXISTS idx_weather_forecasts_valid
                 ON weather_forecasts (valid_start_utc, forecast_vintage_utc);
+
+                CREATE TABLE IF NOT EXISTS power_profile_observations (
+                    delivery_start_local TEXT PRIMARY KEY,
+                    delivery_date TEXT NOT NULL,
+                    hour INTEGER NOT NULL CHECK (hour >= 0 AND hour < 24),
+                    planned_purchase_mwh TEXT,
+                    purchased_mwh TEXT,
+                    gpu_mwh TEXT,
+                    ses_mwh TEXT,
+                    grid_export_mwh TEXT,
+                    technology_consumption_mwh TEXT,
+                    power_consumption_mwh TEXT,
+                    imbalance_mwh TEXT,
+                    source_sheet TEXT NOT NULL,
+                    imported_at_utc TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_power_profile_delivery
+                ON power_profile_observations (delivery_date);
 
                 CREATE TABLE IF NOT EXISTS collection_attempts (
                     id INTEGER PRIMARY KEY,
@@ -567,6 +586,72 @@ class SQLiteMarketRepository:
             )
             for row in rows
         ]
+
+    def store_power_profile(
+        self, observations: Iterable[PowerProfileObservation], imported_at_utc: datetime
+    ) -> int:
+        """Upsert validated hourly internal consumption and generation observations."""
+
+        rows = list(observations)
+        if not rows:
+            raise ValueError("power profile import has no observations")
+        imported_at = _utc_iso(imported_at_utc, "imported_at_utc")
+        self.initialize()
+        with closing(self._connect()) as connection, connection:
+            for item in rows:
+                delivery_start = f"{item.delivery_date.isoformat()}T{item.hour:02d}:00:00"
+                connection.execute(
+                    """INSERT INTO power_profile_observations (
+                           delivery_start_local, delivery_date, hour,
+                           planned_purchase_mwh, purchased_mwh, gpu_mwh, ses_mwh,
+                           grid_export_mwh, technology_consumption_mwh,
+                           power_consumption_mwh, imbalance_mwh, source_sheet, imported_at_utc
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(delivery_start_local) DO UPDATE SET
+                           planned_purchase_mwh = excluded.planned_purchase_mwh,
+                           purchased_mwh = excluded.purchased_mwh,
+                           gpu_mwh = excluded.gpu_mwh,
+                           ses_mwh = excluded.ses_mwh,
+                           grid_export_mwh = excluded.grid_export_mwh,
+                           technology_consumption_mwh = excluded.technology_consumption_mwh,
+                           power_consumption_mwh = excluded.power_consumption_mwh,
+                           imbalance_mwh = excluded.imbalance_mwh,
+                           source_sheet = excluded.source_sheet,
+                           imported_at_utc = excluded.imported_at_utc""",
+                    (delivery_start, item.delivery_date.isoformat(), item.hour,
+                     *(str(value) if value is not None else None for value in (
+                         item.planned_purchase_mwh, item.purchased_mwh, item.gpu_mwh,
+                         item.ses_mwh, item.grid_export_mwh,
+                         item.technology_consumption_mwh, item.power_consumption_mwh,
+                         item.imbalance_mwh)), item.source_sheet, imported_at),
+                )
+        return len(rows)
+
+    def list_power_profile(
+        self, date_from: date | None = None, date_to: date | None = None
+    ) -> list[tuple]:
+        """Return internal profile observations in local-date order."""
+
+        self.initialize()
+        query = """SELECT delivery_date, hour, planned_purchase_mwh, purchased_mwh,
+                          gpu_mwh, ses_mwh, grid_export_mwh, technology_consumption_mwh,
+                          power_consumption_mwh, imbalance_mwh, source_sheet, imported_at_utc
+                   FROM power_profile_observations WHERE 1 = 1"""
+        parameters: list[str] = []
+        if date_from is not None:
+            query += " AND delivery_date >= ?"
+            parameters.append(date_from.isoformat())
+        if date_to is not None:
+            query += " AND delivery_date <= ?"
+            parameters.append(date_to.isoformat())
+        query += " ORDER BY delivery_date, hour"
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, parameters).fetchall()
+        return [(
+            date.fromisoformat(row[0]), row[1],
+            *(Decimal(value) if value is not None else None for value in row[2:10]),
+            row[10], _parse_utc(row[11])
+        ) for row in rows]
 
     def store_collection(
         self,
