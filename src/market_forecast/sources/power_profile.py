@@ -6,6 +6,7 @@ from calendar import monthrange
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from io import StringIO
+import re
 from urllib.parse import quote
 
 import pandas as pd
@@ -25,7 +26,10 @@ def csv_export_url(spreadsheet_id: str, sheet_name: str) -> str:
 def sheets_values_url(spreadsheet_id: str, sheet_name: str) -> str:
     """Return the read-only Sheets API range covering all monthly blocks."""
 
-    range_name = f"{sheet_name}!A1:NI27"
+    # Monthly blocks are horizontal and some days contain extra ASU columns.
+    # ZZ safely covers the current 414-column sheets without relying on a
+    # fixed block width or silently truncating the end of a month.
+    range_name = f"{sheet_name}!A1:ZZ27"
     return (f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values:batchGet"
             f"?majorDimension=ROWS&ranges={quote(range_name, safe='')}")
 
@@ -94,13 +98,27 @@ def parse_month_values(values: list[list[object]], reporting_month: date,
 
     if len(values) < 27 or max((len(row) for row in values), default=0) < 13:
         raise ValueError(f"{sheet_name}: expected at least 27 rows and 13 columns")
-    days = monthrange(reporting_month.year, reporting_month.month)[1]
     observations: list[PowerProfileObservation] = []
-    for day in range(1, days + 1):
-        start = 1 + 12 * (day - 1)
-        date_label = str(values[0][start] if start < len(values[0]) else "").strip()
-        if not date_label:
+    expected_days = monthrange(reporting_month.year, reporting_month.month)[1]
+    date_starts: list[tuple[int, int]] = []
+    for column, raw_label in enumerate(values[0]):
+        label = str(raw_label or "").strip()
+        if not re.fullmatch(r"\d{2}\.\d{2}\.\d{4}", label):
             continue
+        try:
+            parsed = date.fromisoformat(f"{label[6:]}-{label[3:5]}-{label[:2]}")
+        except ValueError:
+            continue
+        if parsed.year == reporting_month.year and parsed.month == reporting_month.month:
+            date_starts.append((column, parsed.day))
+
+    if not date_starts:
+        raise ValueError(f"{sheet_name}: no daily date headers found")
+    seen_days: set[int] = set()
+    for index, (start, day) in enumerate(date_starts):
+        if day in seen_days or day < 1 or day > expected_days:
+            raise ValueError(f"{sheet_name}: duplicate or invalid day header {day}")
+        seen_days.add(day)
         block: list[PowerProfileObservation] = []
         for hour in range(24):
             row = values[2 + hour] if 2 + hour < len(values) else []

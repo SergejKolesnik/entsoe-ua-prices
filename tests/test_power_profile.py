@@ -32,6 +32,21 @@ class PowerProfileTests(unittest.TestCase):
         self.assertEqual(len(rows), 24)
         self.assertEqual(rows[0].purchased_mwh, Decimal("59"))
 
+    def test_parser_discovers_variable_width_daily_blocks(self):
+        values = [[None] * 55 for _ in range(27)]
+        starts = [(1, "01.06.2026"), (14, "02.06.2026"), (32, "03.06.2026")]
+        for start, label in starts:
+            values[0][start] = label
+            for hour in range(24):
+                values[2 + hour][start:start + 8] = ["1"] * 8
+
+        rows = parse_month_values(values, date(2026, 6, 1), "червень 2026")
+
+        self.assertEqual(len(rows), 72)
+        self.assertEqual({row.delivery_date for row in rows}, {
+            date(2026, 6, 1), date(2026, 6, 2), date(2026, 6, 3)
+        })
+
     @patch("requests.get")
     def test_fetch_month_values_uses_bearer_token(self, get):
         response = Mock()
