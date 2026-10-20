@@ -35,7 +35,7 @@ class PowerProfileTests(unittest.TestCase):
     @patch("requests.get")
     def test_fetch_month_values_uses_bearer_token(self, get):
         response = Mock()
-        response.json.return_value = {"values": [["header"]]}
+        response.json.return_value = {"valueRanges": [{"values": [["header"]]}]}
         get.return_value = response
         values = fetch_month_values("sheet-id", "жовтень 2026", "short-lived-token")
         self.assertEqual(values, [["header"]])

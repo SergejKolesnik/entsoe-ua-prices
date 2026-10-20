@@ -26,8 +26,8 @@ def sheets_values_url(spreadsheet_id: str, sheet_name: str) -> str:
     """Return the read-only Sheets API range covering all monthly blocks."""
 
     range_name = f"'{sheet_name}'!A1:QZ27"
-    return (f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/"
-            f"{quote(range_name, safe='')}")
+    return (f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values:batchGet"
+            f"?majorDimension=ROWS&ranges={quote(range_name, safe='')}")
 
 
 def fetch_month_values(spreadsheet_id: str, sheet_name: str, access_token: str,
@@ -43,7 +43,11 @@ def fetch_month_values(spreadsheet_id: str, sheet_name: str, access_token: str,
         timeout=timeout_seconds,
     )
     response.raise_for_status()
-    values = response.json().get("values")
+    payload = response.json()
+    values = payload.get("values")
+    if values is None:
+        ranges = payload.get("valueRanges")
+        values = ranges[0].get("values") if ranges else None
     if not isinstance(values, list):
         raise ValueError(f"{sheet_name}: Sheets API response has no values array")
     return values
