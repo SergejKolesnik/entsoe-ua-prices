@@ -40,7 +40,7 @@ class PowerProfileTests(unittest.TestCase):
         values = fetch_month_values("sheet-id", "жовтень 2026", "short-lived-token")
         self.assertEqual(values, [["header"]])
         request = get.call_args
-        self.assertIn("sheets.googleapis.com/v4/spreadsheets/sheet-id/values/", request.args[0])
+        self.assertIn("sheets.googleapis.com/v4/spreadsheets/sheet-id/values:batchGet", request.args[0])
         self.assertEqual(request.kwargs["headers"]["Authorization"], "Bearer short-lived-token")
 
     def test_sheet_name(self):
