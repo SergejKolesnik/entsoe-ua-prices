@@ -25,7 +25,7 @@ def csv_export_url(spreadsheet_id: str, sheet_name: str) -> str:
 def sheets_values_url(spreadsheet_id: str, sheet_name: str) -> str:
     """Return the read-only Sheets API range covering all monthly blocks."""
 
-    range_name = f"'{sheet_name}'!A1:NI27"
+    range_name = f"{sheet_name}!A1:NI27"
     return (f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values:batchGet"
             f"?majorDimension=ROWS&ranges={quote(range_name, safe='')}")
 
