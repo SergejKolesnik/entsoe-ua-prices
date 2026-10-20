@@ -8,7 +8,7 @@ from pathlib import Path
 
 from market_forecast.persistence import SQLiteMarketRepository
 from market_forecast.sources.power_profile import (
-    fetch_month_values, monthly_sheet_name, parse_month_csv, parse_month_values,
+    fetch_month_values, list_worksheet_names, monthly_sheet_name, parse_month_csv, parse_month_values,
 )
 from unittest.mock import Mock, patch
 
@@ -42,6 +42,15 @@ class PowerProfileTests(unittest.TestCase):
         request = get.call_args
         self.assertIn("sheets.googleapis.com/v4/spreadsheets/sheet-id/values:batchGet", request.args[0])
         self.assertEqual(request.kwargs["headers"]["Authorization"], "Bearer short-lived-token")
+
+    @patch("requests.get")
+    def test_lists_only_visible_worksheet_titles(self, get):
+        response = Mock()
+        response.json.return_value = {"sheets": [{"properties": {"title": "березень 2026"}},
+                                                   {"properties": {"title": "жовтень 2026"}}]}
+        get.return_value = response
+        self.assertEqual(list_worksheet_names("sheet-id", "short-lived-token"),
+                         {"березень 2026", "жовтень 2026"})
 
     def test_sheet_name(self):
         self.assertEqual(monthly_sheet_name(date(2026, 10, 1)), "жовтень 2026")

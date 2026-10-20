@@ -53,6 +53,25 @@ def fetch_month_values(spreadsheet_id: str, sheet_name: str, access_token: str,
     return values
 
 
+def list_worksheet_names(spreadsheet_id: str, access_token: str,
+                         timeout_seconds: float = 30.0) -> set[str]:
+    """List worksheet titles visible to the authorized service account."""
+
+    import requests
+
+    response = requests.get(
+        f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}",
+        params={"fields": "sheets.properties.title"},
+        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json",
+                 "User-Agent": "RDN-Market-Intelligence/1.0"},
+        timeout=timeout_seconds,
+    )
+    response.raise_for_status()
+    sheets = response.json().get("sheets", [])
+    return {item["properties"]["title"] for item in sheets
+            if item.get("properties", {}).get("title")}
+
+
 def monthly_sheet_name(reporting_month: date) -> str:
     if reporting_month.day != 1:
         raise ValueError("reporting_month must be the first day of a month")

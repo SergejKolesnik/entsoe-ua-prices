@@ -760,7 +760,7 @@ def main(argv: list[str] | None = None) -> int:
         from market_forecast.config import Settings
         from market_forecast.persistence import create_market_repository
         from market_forecast.sources.power_profile import (
-            fetch_month_values, monthly_sheet_name, parse_month_values,
+            fetch_month_values, list_worksheet_names, monthly_sheet_name, parse_month_values,
         )
 
         if args.date_from.day != 1 or args.date_to.day != 1 or args.date_from > args.date_to:
@@ -768,9 +768,19 @@ def main(argv: list[str] | None = None) -> int:
         settings = Settings.from_environment()
         observations = []
         sheets = []
+        skipped_sheets = []
+        available_sheets = list_worksheet_names(
+            settings.require_power_profile_spreadsheet_id(),
+            settings.require_google_sheets_access_token(),
+            settings.request_timeout_seconds,
+        )
         month = args.date_from
         while month <= args.date_to:
             sheet_name = monthly_sheet_name(month)
+            if sheet_name not in available_sheets:
+                skipped_sheets.append(sheet_name)
+                month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
+                continue
             parsed = parse_month_values(
                 fetch_month_values(settings.require_power_profile_spreadsheet_id(), sheet_name,
                                    settings.require_google_sheets_access_token(),
@@ -785,7 +795,8 @@ def main(argv: list[str] | None = None) -> int:
             repository = create_market_repository(settings.database_path, settings.database_url)
             stored = repository.store_power_profile(observations, datetime.now(timezone.utc))
         print(json.dumps({"mode": "write" if args.write else "dry-run", "observations": len(observations),
-                          "stored": stored, "sheets": sheets}, ensure_ascii=False))
+                          "stored": stored, "sheets": sheets, "skipped_sheets": skipped_sheets},
+                         ensure_ascii=False))
         return 0
     if args.command == "import-gas-legacy-price-sheet":
         from datetime import datetime, timezone
