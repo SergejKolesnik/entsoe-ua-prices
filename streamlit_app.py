@@ -1304,7 +1304,10 @@ def _draw_power_profile(
         imbalance_mwh=("imbalance_mwh", "sum"),
     )
     available_dates = sorted(profile["delivery_date"].dropna().unique())
-    prior_dates = [value for value in available_dates if value <= selected_date]
+    # The morning dashboard must use the last completed day, never the open
+    # current delivery day that may already have partial source rows.
+    latest_completed_date = selected_date - timedelta(days=1)
+    prior_dates = [value for value in available_dates if value <= latest_completed_date]
     profile_date = prior_dates[-1] if prior_dates else available_dates[-1]
     selected = profile[profile["delivery_date"] == profile_date].sort_values("hour")
     if selected.empty:
