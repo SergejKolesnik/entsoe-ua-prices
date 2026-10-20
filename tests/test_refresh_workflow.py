@@ -25,7 +25,8 @@ class RefreshWorkflowTests(unittest.TestCase):
         self.assertIn("python -m market_forecast.cli import-idm-quarter", workflow)
         self.assertIn("--allow-partial-quarter --write", workflow)
         self.assertIn('month=$(date +%-m)', workflow)
-        self.assertNotIn("GOOGLE", workflow)
+        self.assertIn("GCP_WORKLOAD_IDENTITY_PROVIDER", workflow)
+        self.assertIn("google-github-actions/auth@v2", workflow)
 
     def test_operator_refresh_retries_after_evening_gate_closes(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")

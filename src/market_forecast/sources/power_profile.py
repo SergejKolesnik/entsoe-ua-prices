@@ -22,6 +22,32 @@ def csv_export_url(spreadsheet_id: str, sheet_name: str) -> str:
             f"?tqx=out:csv&sheet={quote(sheet_name, safe='')}")
 
 
+def sheets_values_url(spreadsheet_id: str, sheet_name: str) -> str:
+    """Return the read-only Sheets API range covering all monthly blocks."""
+
+    return (f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/"
+            f"{quote(sheet_name, safe='')}!A1:QZ27")
+
+
+def fetch_month_values(spreadsheet_id: str, sheet_name: str, access_token: str,
+                       timeout_seconds: float = 30.0) -> list[list[object]]:
+    """Fetch one private worksheet through an OAuth access token."""
+
+    import requests
+
+    response = requests.get(
+        sheets_values_url(spreadsheet_id, sheet_name),
+        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json",
+                 "User-Agent": "RDN-Market-Intelligence/1.0"},
+        timeout=timeout_seconds,
+    )
+    response.raise_for_status()
+    values = response.json().get("values")
+    if not isinstance(values, list):
+        raise ValueError(f"{sheet_name}: Sheets API response has no values array")
+    return values
+
+
 def monthly_sheet_name(reporting_month: date) -> str:
     if reporting_month.day != 1:
         raise ValueError("reporting_month must be the first day of a month")
@@ -38,30 +64,28 @@ def _number(value: object) -> Decimal | None:
         return None
 
 
-def parse_month_csv(csv_text: str, reporting_month: date, sheet_name: str) -> list[PowerProfileObservation]:
-    """Parse available hourly blocks; blank future blocks remain absent."""
+def parse_month_values(values: list[list[object]], reporting_month: date,
+                       sheet_name: str) -> list[PowerProfileObservation]:
+    """Parse horizontal daily blocks returned by the Sheets API."""
 
-    raw = pd.read_csv(StringIO(csv_text), header=None, dtype=str, keep_default_na=False)
-    if raw.shape[0] < 27 or raw.shape[1] < 13:
+    if len(values) < 27 or max((len(row) for row in values), default=0) < 13:
         raise ValueError(f"{sheet_name}: expected at least 27 rows and 13 columns")
     days = monthrange(reporting_month.year, reporting_month.month)[1]
     observations: list[PowerProfileObservation] = []
     for day in range(1, days + 1):
         start = 1 + 12 * (day - 1)
-        if start + 11 >= raw.shape[1]:
-            break
-        date_label = str(raw.iloc[0, start]).strip()
+        date_label = str(values[0][start] if start < len(values[0]) else "").strip()
         if not date_label:
             continue
         block: list[PowerProfileObservation] = []
         for hour in range(24):
-            row = raw.iloc[2 + hour]
-            values = [_number(row.iloc[start + offset]) for offset in range(8)]
-            if all(value is None for value in values):
+            row = values[2 + hour] if 2 + hour < len(values) else []
+            numbers = [_number(row[start + offset] if start + offset < len(row) else "")
+                       for offset in range(8)]
+            if all(value is None for value in numbers):
                 continue
-            block.append(PowerProfileObservation(
-                reporting_month.replace(day=day), hour, *values, sheet_name
-            ))
+            block.append(PowerProfileObservation(reporting_month.replace(day=day), hour,
+                                                 *numbers, sheet_name))
         if block:
             if len(block) != 24:
                 raise ValueError(f"{sheet_name}: day {day} has {len(block)} hourly rows")
@@ -69,3 +93,12 @@ def parse_month_csv(csv_text: str, reporting_month: date, sheet_name: str) -> li
     if not observations:
         raise ValueError(f"{sheet_name}: no hourly profile observations found")
     return observations
+
+
+def parse_month_csv(csv_text: str, reporting_month: date, sheet_name: str) -> list[PowerProfileObservation]:
+    """Parse available hourly blocks; blank future blocks remain absent."""
+
+    raw = pd.read_csv(StringIO(csv_text), header=None, dtype=str, keep_default_na=False)
+    if raw.shape[0] < 27 or raw.shape[1] < 13:
+        raise ValueError(f"{sheet_name}: expected at least 27 rows and 13 columns")
+    return parse_month_values(raw.astype(object).values.tolist(), reporting_month, sheet_name)

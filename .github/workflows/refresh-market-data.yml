@@ -1,5 +1,9 @@
 name: Refresh market data
 
+permissions:
+  contents: read
+  id-token: write
+
 on:
   schedule:
     - cron: "15 14 * * *"
@@ -221,9 +225,19 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Verify power profile configuration
         shell: bash
-        run: test -n "$DATABASE_URL" && test -n "$POWER_PROFILE_SPREADSHEET_ID"
+        run: test -n "$DATABASE_URL" && test -n "$POWER_PROFILE_SPREADSHEET_ID" && test -n "${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}"
+      - name: Authenticate to Google Sheets
+        id: google-auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: reporter-bot@nzf-energy-reporter.iam.gserviceaccount.com
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/spreadsheets.readonly
       - name: Refresh current-year power profile
         shell: bash
+        env:
+          GOOGLE_SHEETS_ACCESS_TOKEN: ${{ steps.google-auth.outputs.access_token }}
         run: |
           year=$(date +%Y)
           month=$(date +%-m)

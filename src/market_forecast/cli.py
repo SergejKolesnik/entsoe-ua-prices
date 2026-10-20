@@ -757,11 +757,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "import-power-profile":
         from datetime import datetime, timezone
-        import requests
         from market_forecast.config import Settings
         from market_forecast.persistence import create_market_repository
         from market_forecast.sources.power_profile import (
-            csv_export_url, monthly_sheet_name, parse_month_csv,
+            fetch_month_values, monthly_sheet_name, parse_month_values,
         )
 
         if args.date_from.day != 1 or args.date_to.day != 1 or args.date_from > args.date_to:
@@ -772,13 +771,12 @@ def main(argv: list[str] | None = None) -> int:
         month = args.date_from
         while month <= args.date_to:
             sheet_name = monthly_sheet_name(month)
-            response = requests.get(
-                csv_export_url(settings.require_power_profile_spreadsheet_id(), sheet_name),
-                headers={"Accept": "text/csv", "User-Agent": "RDN-Market-Intelligence/1.0"},
-                timeout=settings.request_timeout_seconds,
+            parsed = parse_month_values(
+                fetch_month_values(settings.require_power_profile_spreadsheet_id(), sheet_name,
+                                   settings.require_google_sheets_access_token(),
+                                   settings.request_timeout_seconds),
+                month, sheet_name,
             )
-            response.raise_for_status()
-            parsed = parse_month_csv(response.content.decode("utf-8-sig"), month, sheet_name)
             observations.extend(parsed)
             sheets.append(sheet_name)
             month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
