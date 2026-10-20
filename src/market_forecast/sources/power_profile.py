@@ -26,7 +26,7 @@ def sheets_values_url(spreadsheet_id: str, sheet_name: str) -> str:
     """Return the read-only Sheets API range covering all monthly blocks."""
 
     return (f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/"
-            f"{quote(sheet_name, safe='')}!A1:QZ27")
+            f"{quote(f'{sheet_name}!A1:QZ27', safe='')}")
 
 
 def fetch_month_values(spreadsheet_id: str, sheet_name: str, access_token: str,
