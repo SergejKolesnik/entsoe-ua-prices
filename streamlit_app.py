@@ -1273,6 +1273,25 @@ def _draw_daily_market_brief(
         )
 
 
+def _complete_power_profile_dates(profile: pd.DataFrame, cutoff: date) -> list[date]:
+    """Return dates with a complete 24-hour factual profile."""
+
+    completeness = profile.groupby("delivery_date").agg(
+        hours=("hour", "nunique"),
+        purchased=("purchased_mwh", "count"),
+        power=("power_consumption_mwh", "count"),
+        grid_export=("grid_export_mwh", "count"),
+    )
+    complete_dates = completeness.index[
+        (completeness["hours"] == 24)
+        & (completeness["purchased"] == 24)
+        & (completeness["power"] == 24)
+        & (completeness["grid_export"] == 24)
+        & (completeness.index <= cutoff)
+    ]
+    return sorted(complete_dates)
+
+
 def _draw_power_profile(
     database_path: Path, date_from: date, date_to: date, selected_date: date
 ) -> None:
@@ -1296,24 +1315,25 @@ def _draw_power_profile(
     if profile.empty:
         st.info("Профіль споживання ще не імпортовано до бази даних.")
         return
-    daily = profile.groupby("delivery_date", as_index=False).agg(
+    # A source sheet can expose future daily blocks before their factual cells
+    # are filled.  A date is complete only when all 24 hours have the three
+    # values used by this view; row count alone is not sufficient.
+    latest_known_date = min(selected_date, datetime.now(KYIV).date())
+    latest_completed_date = latest_known_date - timedelta(days=1)
+    complete_dates = _complete_power_profile_dates(profile, latest_completed_date)
+    if len(complete_dates) == 0:
+        st.info("Немає повної завершеної доби для профілю споживання.")
+        return
+    complete_profile = profile[profile["delivery_date"].isin(complete_dates)]
+    daily = complete_profile.groupby("delivery_date", as_index=False).agg(
         planned_purchase_mwh=("planned_purchase_mwh", "sum"),
         purchased_mwh=("purchased_mwh", "sum"),
         power_consumption_mwh=("power_consumption_mwh", "sum"),
         grid_export_mwh=("grid_export_mwh", "sum"),
         imbalance_mwh=("imbalance_mwh", "sum"),
     )
-    available_dates = sorted(profile["delivery_date"].dropna().unique())
-    # The morning dashboard must use the last completed day, never the open
-    # current delivery day that may already have partial source rows.
-    latest_known_date = min(selected_date, datetime.now(KYIV).date())
-    latest_completed_date = latest_known_date - timedelta(days=1)
-    prior_dates = [value for value in available_dates if value <= latest_completed_date]
-    profile_date = prior_dates[-1] if prior_dates else available_dates[-1]
-    selected = profile[profile["delivery_date"] == profile_date].sort_values("hour")
-    if selected.empty:
-        selected = profile.sort_values(["delivery_date", "hour"]).tail(24)
-        profile_date = selected["delivery_date"].iloc[0]
+    profile_date = complete_dates[-1]
+    selected = complete_profile[complete_profile["delivery_date"] == profile_date].sort_values("hour")
     metrics = st.columns(4)
     selected_day = daily[daily["delivery_date"] == profile_date]
     if not selected_day.empty:
