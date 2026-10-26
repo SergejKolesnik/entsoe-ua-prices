@@ -7,6 +7,11 @@ import streamlit_app as app
 
 
 class IntradayUiTests(unittest.TestCase):
+    def test_completed_day_quick_choices_are_bounded_by_available_dates(self) -> None:
+        available = [date(2026, 9, 13), date(2026, 9, 14), date(2026, 9, 15)]
+        self.assertEqual(available[-1], date(2026, 9, 15))
+        self.assertIn(date(2026, 9, 14), available)
+
     def test_uses_requested_date_when_available(self) -> None:
         self.assertEqual(
             app._nearest_intraday_date([date(2026, 9, 13), date(2026, 9, 14)], date(2026, 9, 14)),

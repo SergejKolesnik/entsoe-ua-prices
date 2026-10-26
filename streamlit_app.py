@@ -527,10 +527,38 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
     if st.session_state.get("_rdn_diff_default_key") != selector_key:
         st.session_state[selector_key] = comparison_date
         st.session_state["_rdn_diff_default_key"] = selector_key
+    # Keep the long historical list available, but make the common choices
+    # explicit so the user never has to scroll back to an old default date.
+    calendar_key = f"rdn_diff_tariff_calendar_{analysis_date.isoformat()}"
+    if st.session_state.get("_rdn_diff_calendar_key") != selector_key:
+        st.session_state[calendar_key] = comparison_date
+        st.session_state["_rdn_diff_calendar_key"] = selector_key
+    quick_columns = st.columns([1, 1, 1, 2.4])
+    yesterday_date = preferred_date if preferred_date in available_dates else available_dates[-1]
+    if quick_columns[0].button("Вчора", key=f"rdn_diff_yesterday_{analysis_date.isoformat()}"):
+        st.session_state[selector_key] = yesterday_date
+        st.session_state[calendar_key] = yesterday_date
+        st.rerun()
+    if quick_columns[1].button("Останній доступний", key=f"rdn_diff_latest_{analysis_date.isoformat()}"):
+        st.session_state[selector_key] = available_dates[-1]
+        st.session_state[calendar_key] = available_dates[-1]
+        st.rerun()
+    calendar_date = quick_columns[2].date_input(
+        "Календар",
+        min_value=available_dates[0],
+        max_value=available_dates[-1],
+        key=calendar_key,
+        format="DD.MM.YYYY",
+        label_visibility="collapsed",
+    )
+    if calendar_date in available_dates and st.session_state.get(selector_key) != calendar_date:
+        st.session_state[selector_key] = calendar_date
+        st.rerun()
+    quick_columns[3].caption("Швидкий вибір завершеної доби")
     comparison_date = st.selectbox(
         "Завершений день для погодинного аналізу",
         available_dates,
-        index=selected_index,
+        index=available_dates.index(st.session_state.get(selector_key, comparison_date)),
         format_func=lambda value: value.strftime("%d.%m.%Y"),
         key=selector_key,
     )
