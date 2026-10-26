@@ -57,7 +57,6 @@ from market_forecast.services import aggregate_price_rows_hourly, build_quality_
 from market_forecast.weather_locations import WEATHER_LOCATIONS  # noqa: E402
 from market_forecast.sources.rdn_diff_tariff import (  # noqa: E402
     add_aggregates,
-    hourly_cost_total_uah,
     load_comparison_source,
 )
 from market_forecast.sources.self_generation import load_self_generation_source  # noqa: E402
@@ -575,7 +574,12 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
     hourly["hourly_cost"] = hourly["hourly_cost"].fillna(
         hourly["actual_volume"] * hourly["rdn_price"] / 1000
     )
-    daily_actual_cost_uah = hourly_cost_total_uah(hourly["hourly_cost"])
+    hourly_costs = pd.to_numeric(hourly["hourly_cost"], errors="coerce")
+    daily_actual_cost_uah = (
+        float(hourly_costs.sum() * 1000)
+        if not hourly_costs.empty and hourly_costs.notna().all()
+        else None
+    )
     hourly_figure = go.Figure()
     hourly_figure.add_trace(go.Scatter(
         x=hourly["hour"], y=hourly["rdn_price"], name="РДН, грн/МВт·год",
