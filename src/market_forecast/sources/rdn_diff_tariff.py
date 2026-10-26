@@ -179,3 +179,12 @@ def add_aggregates(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     monthly["saving_pct"] = (monthly["rdn_daily"] - monthly["weighted_nzf"]) / monthly["rdn_daily"]
     monthly.loc[monthly["rdn_daily"].isna() | monthly["weighted_nzf"].isna() | (monthly["rdn_daily"] == 0), "saving_pct"] = pd.NA
     return daily, monthly
+
+
+def hourly_cost_total_uah(hourly_costs_thousands: pd.Series) -> float | None:
+    """Convert a complete series of hourly thousand-UAH costs to total UAH."""
+
+    values = pd.to_numeric(hourly_costs_thousands, errors="coerce")
+    if values.empty or values.isna().any():
+        return None
+    return float(values.sum() * 1000)
