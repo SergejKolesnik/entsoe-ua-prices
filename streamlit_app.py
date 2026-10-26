@@ -57,6 +57,7 @@ from market_forecast.services import aggregate_price_rows_hourly, build_quality_
 from market_forecast.weather_locations import WEATHER_LOCATIONS  # noqa: E402
 from market_forecast.sources.rdn_diff_tariff import (  # noqa: E402
     add_aggregates,
+    hourly_cost_total_uah,
     load_comparison_source,
 )
 from market_forecast.sources.self_generation import load_self_generation_source  # noqa: E402
@@ -574,12 +575,13 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
     hourly["hourly_cost"] = hourly["hourly_cost"].fillna(
         hourly["actual_volume"] * hourly["rdn_price"] / 1000
     )
+    daily_actual_cost_uah = hourly_cost_total_uah(hourly["hourly_cost"])
     hourly_figure = go.Figure()
     hourly_figure.add_trace(go.Scatter(
         x=hourly["hour"], y=hourly["rdn_price"], name="РДН, грн/МВт·год",
         mode="lines+markers", line=dict(color=AMBER, width=3),
         customdata=hourly[["actual_volume", "hourly_cost"]],
-        hovertemplate="Година %{x}<br>РДН: %{y:,.0f} грн/МВт·год<br>Обсяг: %{customdata[0]:,.2f}<br>Витрати: %{customdata[1]:,.2f} грн<extra></extra>",
+        hovertemplate="Година %{x}<br>РДН: %{y:,.0f} грн/МВт·год<br>Обсяг: %{customdata[0]:,.2f} МВт·год<br>Витрати: %{customdata[1]:,.2f} тис. грн<extra></extra>",
         yaxis="y",
     ))
     hourly_figure.add_trace(go.Bar(
@@ -589,18 +591,29 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
         yaxis="y2",
     ))
     hourly_figure.add_trace(go.Bar(
-        x=hourly["hour"], y=hourly["hourly_cost"], name="Витрати за годину",
-        marker_color=COST_GREEN, hovertemplate="Година %{x}<br>Витрати: %{y:,.2f} грн<extra></extra>",
+        x=hourly["hour"], y=hourly["hourly_cost"], name="Витрати за годину, тис. грн",
+        marker_color=COST_GREEN, hovertemplate="Година %{x}<br>Витрати: %{y:,.2f} тис. грн<extra></extra>",
         yaxis="y2",
     ))
     hourly_figure.update_layout(
         height=520, margin=dict(l=10, r=95, t=25, b=10),
         xaxis=dict(title="Година"),
         yaxis=dict(title="RDN, грн/МВт·год"),
-        yaxis2=dict(title="Обсяг / витрати", overlaying="y", side="right"),
+        yaxis2=dict(title="Обсяг, МВт·год / витрати, тис. грн", overlaying="y", side="right"),
         legend=dict(orientation="h", y=1.12), barmode="group", showlegend=True,
     )
     st.plotly_chart(hourly_figure, width="stretch")
+    st.metric(
+        "Фактичні витрати на електроенергію за день",
+        f"{daily_actual_cost_uah:,.0f} грн".replace(",", " ")
+        if daily_actual_cost_uah is not None
+        else "—",
+    )
+    st.caption(
+        "Зелені стовпчики та їхні підказки — у тис. грн; денний підсумок "
+        "дорівнює їхній сумі, помноженій на 1 000. Якщо бракує хоча б "
+        "однієї погодинної витрати, підсумок не показується."
+    )
 
     try:
         self_generation = _load_self_generation()
