@@ -714,13 +714,11 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
     )
     if cost_month["cost_uah"].notna().any():
         cost_figure = go.Figure()
-        cost_figure.add_trace(go.Scatter(
+        cost_figure.add_trace(go.Bar(
             x=cost_month["delivery_date"],
             y=cost_month["cost_uah"],
             name="Фактичні витрати",
-            mode="lines+markers",
-            line=dict(color=COST_GREEN, width=3),
-            connectgaps=False,
+            marker_color=COST_GREEN,
             hovertemplate="%{x|%d.%m.%Y}<br>Фактичні витрати: %{y:,.0f} грн<extra></extra>",
         ))
         cost_figure.update_layout(
