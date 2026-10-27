@@ -706,7 +706,7 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
         (daily["delivery_date"] >= cost_month_start)
         & (daily["delivery_date"] <= comparison_date)
     )
-    cost_month = daily.loc[cost_month_mask, ["delivery_date"]].copy()
+    cost_month = daily.loc[cost_month_mask, ["delivery_date", "rdn_daily"]].copy()
     cost_month["cost_uah"] = daily_cost_uah.loc[cost_month_mask]
     month_label = UKRAINIAN_MONTHS[comparison_date.month]
     st.markdown(
@@ -720,13 +720,33 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
             name="Фактичні витрати",
             marker_color=COST_GREEN,
             hovertemplate="%{x|%d.%m.%Y}<br>Фактичні витрати: %{y:,.0f} грн<extra></extra>",
+            yaxis="y",
+        ))
+        cost_figure.add_trace(go.Scatter(
+            x=cost_month["delivery_date"],
+            y=cost_month["rdn_daily"],
+            name="Середньодобова ціна РДН",
+            mode="lines+markers",
+            line=dict(color=AMBER, width=3),
+            marker=dict(size=7),
+            connectgaps=False,
+            hovertemplate="%{x|%d.%m.%Y}<br>Середньодобова ціна РДН: %{y:,.0f} грн/МВт·год<extra></extra>",
+            yaxis="y2",
         ))
         cost_figure.update_layout(
-            height=330,
-            margin=dict(l=10, r=10, t=20, b=10),
-            xaxis_title="Дата",
-            yaxis_title="грн/день",
-            showlegend=False,
+            height=380,
+            margin=dict(l=10, r=75, t=30, b=10),
+            xaxis=dict(title="Дата"),
+            yaxis=dict(title="Витрати, грн/день"),
+            yaxis2=dict(
+                title="РДН, грн/МВт·год",
+                overlaying="y",
+                side="right",
+                showgrid=False,
+            ),
+            legend=dict(orientation="h", y=1.12),
+            barmode="group",
+            showlegend=True,
         )
         st.plotly_chart(cost_figure, width="stretch")
         st.caption(
