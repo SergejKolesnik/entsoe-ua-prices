@@ -701,12 +701,22 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
         pd.to_numeric, errors="coerce"
     )
     daily_cost_uah = cost_values.sum(axis=1, min_count=len(cost_columns)) * 1000
-    st.markdown("#### Фактичні витрати на електроенергію за днями")
-    if daily_cost_uah.notna().any():
+    cost_month_start = comparison_date.replace(day=1)
+    cost_month_mask = (
+        (daily["delivery_date"] >= cost_month_start)
+        & (daily["delivery_date"] <= comparison_date)
+    )
+    cost_month = daily.loc[cost_month_mask, ["delivery_date"]].copy()
+    cost_month["cost_uah"] = daily_cost_uah.loc[cost_month_mask]
+    month_label = UKRAINIAN_MONTHS[comparison_date.month]
+    st.markdown(
+        f"#### Фактичні витрати за днями · {month_label} {comparison_date.year}"
+    )
+    if cost_month["cost_uah"].notna().any():
         cost_figure = go.Figure()
         cost_figure.add_trace(go.Scatter(
-            x=daily["delivery_date"],
-            y=daily_cost_uah,
+            x=cost_month["delivery_date"],
+            y=cost_month["cost_uah"],
             name="Фактичні витрати",
             mode="lines+markers",
             line=dict(color=COST_GREEN, width=3),
@@ -722,11 +732,12 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
         )
         st.plotly_chart(cost_figure, width="stretch")
         st.caption(
-            "Кожна точка — сума 24 погодинних фактичних витрат, переведена "
-            "з тис. грн у грн. Дні з неповними погодинними даними пропущено."
+            "Показано дні від початку місяця до вибраної дати. Кожна точка — "
+            "сума 24 погодинних фактичних витрат, переведена з тис. грн у грн. "
+            "Дні з неповними погодинними даними пропущено."
         )
     else:
-        st.info("Немає днів із повним набором погодинних витрат для порівняння.")
+        st.info("У цьому місяці немає днів із повним набором погодинних витрат.")
 
     monthly_figure = go.Figure()
     monthly_figure.add_trace(go.Scatter(x=monthly["month"], y=monthly["rdn_daily"], name="РДН, середнє за дні", mode="lines+markers", line=dict(color=AMBER, width=3)))
