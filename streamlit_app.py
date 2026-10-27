@@ -696,6 +696,38 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
     st.markdown("#### Порівняння за днями")
     st.plotly_chart(daily_figure, width="stretch")
 
+    cost_columns = [f"cost_hour_{hour:02d}" for hour in range(24)]
+    cost_values = daily.reindex(columns=cost_columns).apply(
+        pd.to_numeric, errors="coerce"
+    )
+    daily_cost_uah = cost_values.sum(axis=1, min_count=len(cost_columns)) * 1000
+    st.markdown("#### Фактичні витрати на електроенергію за днями")
+    if daily_cost_uah.notna().any():
+        cost_figure = go.Figure()
+        cost_figure.add_trace(go.Scatter(
+            x=daily["delivery_date"],
+            y=daily_cost_uah,
+            name="Фактичні витрати",
+            mode="lines+markers",
+            line=dict(color=COST_GREEN, width=3),
+            connectgaps=False,
+            hovertemplate="%{x|%d.%m.%Y}<br>Фактичні витрати: %{y:,.0f} грн<extra></extra>",
+        ))
+        cost_figure.update_layout(
+            height=330,
+            margin=dict(l=10, r=10, t=20, b=10),
+            xaxis_title="Дата",
+            yaxis_title="грн/день",
+            showlegend=False,
+        )
+        st.plotly_chart(cost_figure, width="stretch")
+        st.caption(
+            "Кожна точка — сума 24 погодинних фактичних витрат, переведена "
+            "з тис. грн у грн. Дні з неповними погодинними даними пропущено."
+        )
+    else:
+        st.info("Немає днів із повним набором погодинних витрат для порівняння.")
+
     monthly_figure = go.Figure()
     monthly_figure.add_trace(go.Scatter(x=monthly["month"], y=monthly["rdn_daily"], name="РДН, середнє за дні", mode="lines+markers", line=dict(color=AMBER, width=3)))
     monthly_figure.add_trace(go.Scatter(x=monthly["month"], y=monthly["weighted_nzf"], name="НЗФ, середнє за дні", mode="lines+markers", line=dict(color=BLUE, width=3)))
