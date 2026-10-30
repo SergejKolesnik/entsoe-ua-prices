@@ -161,3 +161,23 @@ For normal implementation tasks, keep the final response short:
 3. Remaining — only unresolved items, risks, or required approval.
 
 Do not repeat the task description or provide a long project summary unless requested.
+
+## Branch completion protocol
+
+A new task must not rely on chat history for project state. Repository files are the source of truth.
+
+Before completing a feature branch:
+
+1. Run the relevant tests and checks.
+2. Review `git status` and uncommitted files.
+3. Exclude unrelated files from the change.
+4. Commit only changes for the current task.
+5. Create or update the pull request.
+6. Update `HANDOFF.md`.
+7. Provide a short final summary.
+8. After merge, confirm the state of `main`.
+9. Delete the feature branch when it is no longer needed.
+
+`HANDOFF.md` must record the branch name, PR number, status, changed files/behavior, tests/checks, database or migration changes, production impact, unresolved issues, and one recommended next action.
+
+Read `HANDOFF.md` before broad repository analysis. Read only the relevant section of `PROJECT_CONTEXT.md`; do not read it in full without need. Keep `HANDOFF.md` short and current—do not accumulate old history there. Use Git history and PR history as the long-term record.
