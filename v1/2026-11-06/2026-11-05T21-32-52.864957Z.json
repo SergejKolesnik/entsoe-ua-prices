@@ -1,0 +1,758 @@
+{
+  "context": {
+    "cross_border_flows": [
+      {
+        "covered_export_hours": 0,
+        "covered_import_hours": 0,
+        "expected_hours": 24,
+        "export_mwh": 0,
+        "import_mwh": 0,
+        "market": "PL",
+        "net_import_mwh": 0,
+        "status": "unavailable",
+        "unit": "MWh"
+      },
+      {
+        "covered_export_hours": 0,
+        "covered_import_hours": 0,
+        "expected_hours": 24,
+        "export_mwh": 0,
+        "import_mwh": 0,
+        "market": "SK",
+        "net_import_mwh": 0,
+        "status": "unavailable",
+        "unit": "MWh"
+      },
+      {
+        "covered_export_hours": 0,
+        "covered_import_hours": 0,
+        "expected_hours": 24,
+        "export_mwh": 0,
+        "import_mwh": 0,
+        "market": "HU",
+        "net_import_mwh": 0,
+        "status": "unavailable",
+        "unit": "MWh"
+      },
+      {
+        "covered_export_hours": 0,
+        "covered_import_hours": 0,
+        "expected_hours": 24,
+        "export_mwh": 0,
+        "import_mwh": 0,
+        "market": "RO",
+        "net_import_mwh": 0,
+        "status": "unavailable",
+        "unit": "MWh"
+      }
+    ],
+    "forecast": {
+      "absolute_error_p80": 2520,
+      "backtest_mae": 1487.9286832671253,
+      "backtest_rmse": 2348.479875227483,
+      "hourly": [
+        {
+          "delivery_start_utc": "2026-11-05T22:00:00Z",
+          "interval_high": 8510,
+          "interval_low": 3470,
+          "method": "previous_day",
+          "predicted_price": 5990,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-05T23:00:00Z",
+          "interval_high": 6960,
+          "interval_low": 1920,
+          "method": "previous_day",
+          "predicted_price": 4440,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T00:00:00Z",
+          "interval_high": 6960,
+          "interval_low": 1920,
+          "method": "previous_day",
+          "predicted_price": 4440,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T01:00:00Z",
+          "interval_high": 6960,
+          "interval_low": 1920,
+          "method": "previous_day",
+          "predicted_price": 4440,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T02:00:00Z",
+          "interval_high": 6960,
+          "interval_low": 1920,
+          "method": "previous_day",
+          "predicted_price": 4440,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T03:00:00Z",
+          "interval_high": 6960,
+          "interval_low": 1920,
+          "method": "previous_day",
+          "predicted_price": 4440,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T04:00:00Z",
+          "interval_high": 8510,
+          "interval_low": 3470,
+          "method": "previous_day",
+          "predicted_price": 5990,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T05:00:00Z",
+          "interval_high": 12520,
+          "interval_low": 7480,
+          "method": "previous_day",
+          "predicted_price": 10000,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T06:00:00Z",
+          "interval_high": 10520,
+          "interval_low": 5480,
+          "method": "previous_day",
+          "predicted_price": 8000,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T07:00:00Z",
+          "interval_high": 8490,
+          "interval_low": 3450,
+          "method": "previous_day",
+          "predicted_price": 5970,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T08:00:00Z",
+          "interval_high": 7960,
+          "interval_low": 2920,
+          "method": "previous_day",
+          "predicted_price": 5440,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T09:00:00Z",
+          "interval_high": 7820,
+          "interval_low": 2780,
+          "method": "previous_day",
+          "predicted_price": 5300,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T10:00:00Z",
+          "interval_high": 7520,
+          "interval_low": 2480,
+          "method": "previous_day",
+          "predicted_price": 5000,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T11:00:00Z",
+          "interval_high": 7840,
+          "interval_low": 2800,
+          "method": "previous_day",
+          "predicted_price": 5320,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T12:00:00Z",
+          "interval_high": 7860,
+          "interval_low": 2820,
+          "method": "previous_day",
+          "predicted_price": 5340,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T13:00:00Z",
+          "interval_high": 10219,
+          "interval_low": 5179,
+          "method": "previous_day",
+          "predicted_price": 7699,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T14:00:00Z",
+          "interval_high": 15020,
+          "interval_low": 9980,
+          "method": "previous_day",
+          "predicted_price": 12500,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T15:00:00Z",
+          "interval_high": 17493.61,
+          "interval_low": 12453.61,
+          "method": "previous_day",
+          "predicted_price": 14973.61,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T16:00:00Z",
+          "interval_high": 17496.27,
+          "interval_low": 12456.27,
+          "method": "previous_day",
+          "predicted_price": 14976.27,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T17:00:00Z",
+          "interval_high": 17495.17,
+          "interval_low": 12455.17,
+          "method": "previous_day",
+          "predicted_price": 14975.17,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T18:00:00Z",
+          "interval_high": 16520,
+          "interval_low": 11480,
+          "method": "previous_day",
+          "predicted_price": 14000,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T19:00:00Z",
+          "interval_high": 16020,
+          "interval_low": 10980,
+          "method": "previous_day",
+          "predicted_price": 13500,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T20:00:00Z",
+          "interval_high": 10469,
+          "interval_low": 5429,
+          "method": "previous_day",
+          "predicted_price": 7949,
+          "sample_count": 1
+        },
+        {
+          "delivery_start_utc": "2026-11-06T21:00:00Z",
+          "interval_high": 8720,
+          "interval_low": 3680,
+          "method": "previous_day",
+          "predicted_price": 6200,
+          "sample_count": 1
+        }
+      ],
+      "issued_at_utc": "2026-11-04T11:15:23.379156Z",
+      "model_name": "previous_day",
+      "model_version": "baseline-v1",
+      "period_count": 24,
+      "status": "complete",
+      "training_cutoff_date": "2026-11-05"
+    },
+    "fx": {
+      "currency": "EUR",
+      "effective_date": "2026-11-06",
+      "rate_uah_per_eur": 51.0406,
+      "status": "available"
+    },
+    "neighbor_markets": [
+      {
+        "average_price": null,
+        "bidding_zone": "10YPL-AREA-----S",
+        "currency": "EUR",
+        "hourly": [],
+        "market": "PL",
+        "name": "Польща",
+        "period_count": 0,
+        "status": "unavailable",
+        "unit": "EUR/MWh"
+      },
+      {
+        "average_price": null,
+        "bidding_zone": "10YSK-SEPS-----K",
+        "currency": "EUR",
+        "hourly": [],
+        "market": "SK",
+        "name": "Словаччина",
+        "period_count": 0,
+        "status": "unavailable",
+        "unit": "EUR/MWh"
+      },
+      {
+        "average_price": null,
+        "bidding_zone": "10YHU-MAVIR----U",
+        "currency": "EUR",
+        "hourly": [],
+        "market": "HU",
+        "name": "Угорщина",
+        "period_count": 0,
+        "status": "unavailable",
+        "unit": "EUR/MWh"
+      },
+      {
+        "average_price": null,
+        "bidding_zone": "10YRO-TEL------P",
+        "currency": "EUR",
+        "hourly": [],
+        "market": "RO",
+        "name": "Румунія",
+        "period_count": 0,
+        "status": "unavailable",
+        "unit": "EUR/MWh"
+      }
+    ],
+    "weather": {
+      "expected_location_count": 6,
+      "location_count": 6,
+      "locations": [
+        {
+          "average_cloud_cover_percent": 74.625,
+          "average_temperature_c": 4.979166666666667,
+          "average_wind_speed_100m_kmh": 32.49166666666667,
+          "forecast_vintage_utc": "2026-11-05T21:00:00Z",
+          "location_id": "KYIV",
+          "period_count": 24,
+          "status": "complete",
+          "total_shortwave_radiation_whm2": 1495
+        },
+        {
+          "average_cloud_cover_percent": 78.79166666666667,
+          "average_temperature_c": 3.9208333333333334,
+          "average_wind_speed_100m_kmh": 23.995833333333334,
+          "forecast_vintage_utc": "2026-11-05T21:00:00Z",
+          "location_id": "LVIV",
+          "period_count": 24,
+          "status": "complete",
+          "total_shortwave_radiation_whm2": 1117
+        },
+        {
+          "average_cloud_cover_percent": 81.58333333333333,
+          "average_temperature_c": 4.554166666666666,
+          "average_wind_speed_100m_kmh": 33.225,
+          "forecast_vintage_utc": "2026-11-05T21:00:00Z",
+          "location_id": "VIN",
+          "period_count": 24,
+          "status": "complete",
+          "total_shortwave_radiation_whm2": 1417
+        },
+        {
+          "average_cloud_cover_percent": 72.79166666666667,
+          "average_temperature_c": 5.291666666666667,
+          "average_wind_speed_100m_kmh": 32.7,
+          "forecast_vintage_utc": "2026-11-05T21:00:00Z",
+          "location_id": "ODESA",
+          "period_count": 24,
+          "status": "complete",
+          "total_shortwave_radiation_whm2": 1307
+        },
+        {
+          "average_cloud_cover_percent": 89.5,
+          "average_temperature_c": 5.445833333333334,
+          "average_wind_speed_100m_kmh": 26.591666666666665,
+          "forecast_vintage_utc": "2026-11-05T21:00:00Z",
+          "location_id": "DNIPRO",
+          "period_count": 24,
+          "status": "complete",
+          "total_shortwave_radiation_whm2": 978
+        },
+        {
+          "average_cloud_cover_percent": 84.08333333333333,
+          "average_temperature_c": 4.6,
+          "average_wind_speed_100m_kmh": 24.429166666666667,
+          "forecast_vintage_utc": "2026-11-05T21:00:00Z",
+          "location_id": "KHARKIV",
+          "period_count": 24,
+          "status": "complete",
+          "total_shortwave_radiation_whm2": 1256
+        }
+      ],
+      "status": "complete"
+    }
+  },
+  "delivery_date": "2026-11-06",
+  "generated_at": "2026-11-05T21:32:52.864957Z",
+  "hourly": [
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-05T23:00:00Z",
+      "delivery_start_local": "2026-11-06T00:00:00+02:00",
+      "delivery_start_utc": "2026-11-05T22:00:00Z",
+      "local_fold": 0,
+      "local_hour": 0,
+      "market": "day_ahead",
+      "price": 12000,
+      "settlement_period": 1,
+      "volume_mwh": 2839.4
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T00:00:00Z",
+      "delivery_start_local": "2026-11-06T01:00:00+02:00",
+      "delivery_start_utc": "2026-11-05T23:00:00Z",
+      "local_fold": 0,
+      "local_hour": 1,
+      "market": "day_ahead",
+      "price": 6500,
+      "settlement_period": 2,
+      "volume_mwh": 2647.2
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T01:00:00Z",
+      "delivery_start_local": "2026-11-06T02:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T00:00:00Z",
+      "local_fold": 0,
+      "local_hour": 2,
+      "market": "day_ahead",
+      "price": 6000,
+      "settlement_period": 3,
+      "volume_mwh": 2626.2
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T02:00:00Z",
+      "delivery_start_local": "2026-11-06T03:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T01:00:00Z",
+      "local_fold": 0,
+      "local_hour": 3,
+      "market": "day_ahead",
+      "price": 5200,
+      "settlement_period": 4,
+      "volume_mwh": 2565.6
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T03:00:00Z",
+      "delivery_start_local": "2026-11-06T04:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T02:00:00Z",
+      "local_fold": 0,
+      "local_hour": 4,
+      "market": "day_ahead",
+      "price": 4790,
+      "settlement_period": 5,
+      "volume_mwh": 2475.2
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T04:00:00Z",
+      "delivery_start_local": "2026-11-06T05:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T03:00:00Z",
+      "local_fold": 0,
+      "local_hour": 5,
+      "market": "day_ahead",
+      "price": 4790,
+      "settlement_period": 6,
+      "volume_mwh": 2321.9
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T05:00:00Z",
+      "delivery_start_local": "2026-11-06T06:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T04:00:00Z",
+      "local_fold": 0,
+      "local_hour": 6,
+      "market": "day_ahead",
+      "price": 6200,
+      "settlement_period": 7,
+      "volume_mwh": 2492.2
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T06:00:00Z",
+      "delivery_start_local": "2026-11-06T07:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T05:00:00Z",
+      "local_fold": 0,
+      "local_hour": 7,
+      "market": "day_ahead",
+      "price": 14995.63,
+      "settlement_period": 8,
+      "volume_mwh": 3230.1
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T07:00:00Z",
+      "delivery_start_local": "2026-11-06T08:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T06:00:00Z",
+      "local_fold": 0,
+      "local_hour": 8,
+      "market": "day_ahead",
+      "price": 14995.82,
+      "settlement_period": 9,
+      "volume_mwh": 3518
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T08:00:00Z",
+      "delivery_start_local": "2026-11-06T09:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T07:00:00Z",
+      "local_fold": 0,
+      "local_hour": 9,
+      "market": "day_ahead",
+      "price": 14979.97,
+      "settlement_period": 10,
+      "volume_mwh": 3487.4
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T09:00:00Z",
+      "delivery_start_local": "2026-11-06T10:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T08:00:00Z",
+      "local_fold": 0,
+      "local_hour": 10,
+      "market": "day_ahead",
+      "price": 14977.35,
+      "settlement_period": 11,
+      "volume_mwh": 3336.4
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T10:00:00Z",
+      "delivery_start_local": "2026-11-06T11:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T09:00:00Z",
+      "local_fold": 0,
+      "local_hour": 11,
+      "market": "day_ahead",
+      "price": 7500,
+      "settlement_period": 12,
+      "volume_mwh": 3371
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T11:00:00Z",
+      "delivery_start_local": "2026-11-06T12:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T10:00:00Z",
+      "local_fold": 0,
+      "local_hour": 12,
+      "market": "day_ahead",
+      "price": 6200,
+      "settlement_period": 13,
+      "volume_mwh": 3330.6
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T12:00:00Z",
+      "delivery_start_local": "2026-11-06T13:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T11:00:00Z",
+      "local_fold": 0,
+      "local_hour": 13,
+      "market": "day_ahead",
+      "price": 6200,
+      "settlement_period": 14,
+      "volume_mwh": 3232.8
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T13:00:00Z",
+      "delivery_start_local": "2026-11-06T14:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T12:00:00Z",
+      "local_fold": 0,
+      "local_hour": 14,
+      "market": "day_ahead",
+      "price": 11500,
+      "settlement_period": 15,
+      "volume_mwh": 3176.2
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T14:00:00Z",
+      "delivery_start_local": "2026-11-06T15:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T13:00:00Z",
+      "local_fold": 0,
+      "local_hour": 15,
+      "market": "day_ahead",
+      "price": 14999.5,
+      "settlement_period": 16,
+      "volume_mwh": 3404
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T15:00:00Z",
+      "delivery_start_local": "2026-11-06T16:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T14:00:00Z",
+      "local_fold": 0,
+      "local_hour": 16,
+      "market": "day_ahead",
+      "price": 14900,
+      "settlement_period": 17,
+      "volume_mwh": 3387.9
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T16:00:00Z",
+      "delivery_start_local": "2026-11-06T17:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T15:00:00Z",
+      "local_fold": 0,
+      "local_hour": 17,
+      "market": "day_ahead",
+      "price": 14976.12,
+      "settlement_period": 18,
+      "volume_mwh": 3531.1
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T17:00:00Z",
+      "delivery_start_local": "2026-11-06T18:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T16:00:00Z",
+      "local_fold": 0,
+      "local_hour": 18,
+      "market": "day_ahead",
+      "price": 14976.24,
+      "settlement_period": 19,
+      "volume_mwh": 3692.1
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T18:00:00Z",
+      "delivery_start_local": "2026-11-06T19:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T17:00:00Z",
+      "local_fold": 0,
+      "local_hour": 19,
+      "market": "day_ahead",
+      "price": 14977.86,
+      "settlement_period": 20,
+      "volume_mwh": 3550.9
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T19:00:00Z",
+      "delivery_start_local": "2026-11-06T20:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T18:00:00Z",
+      "local_fold": 0,
+      "local_hour": 20,
+      "market": "day_ahead",
+      "price": 14975.45,
+      "settlement_period": 21,
+      "volume_mwh": 3640.5
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T20:00:00Z",
+      "delivery_start_local": "2026-11-06T21:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T19:00:00Z",
+      "local_fold": 0,
+      "local_hour": 21,
+      "market": "day_ahead",
+      "price": 14976.82,
+      "settlement_period": 22,
+      "volume_mwh": 3495.6
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T21:00:00Z",
+      "delivery_start_local": "2026-11-06T22:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T20:00:00Z",
+      "local_fold": 0,
+      "local_hour": 22,
+      "market": "day_ahead",
+      "price": 14975.27,
+      "settlement_period": 23,
+      "volume_mwh": 2971.1
+    },
+    {
+      "bidding_zone": "UA-IPS",
+      "currency": "UAH",
+      "delivery_end_utc": "2026-11-06T22:00:00Z",
+      "delivery_start_local": "2026-11-06T23:00:00+02:00",
+      "delivery_start_utc": "2026-11-06T21:00:00Z",
+      "local_fold": 0,
+      "local_hour": 23,
+      "market": "day_ahead",
+      "price": 8500,
+      "settlement_period": 24,
+      "volume_mwh": 2512.8
+    }
+  ],
+  "quality": {
+    "actual_period_count": 24,
+    "complete_period_count": 24,
+    "expected_period_count": 24,
+    "freshness_status": "current",
+    "latest_available_delivery_date": "2026-11-06",
+    "status": "complete"
+  },
+  "schema_version": "1.0",
+  "semantics": {
+    "null_policy": "missing_values_are_null_and_never_imputed_as_zero",
+    "price_currency": "UAH",
+    "price_unit": "UAH/MWh",
+    "vat": "not_asserted_by_source_contract",
+    "volume_unit": "MWh"
+  },
+  "source_provenance": {
+    "forecast": {
+      "kind": "frozen_baseline",
+      "source": "RDN Market Intelligence"
+    },
+    "fx": {
+      "source": "National Bank of Ukraine"
+    },
+    "neighbor_prices_and_flows": {
+      "source": "ENTSO-E Transparency Platform"
+    },
+    "ukrainian_dam": {
+      "bidding_zone": "UA-IPS",
+      "latest_collection_attempt": {
+        "attempted_at_utc": "2026-11-05T20:26:20.029616Z",
+        "delivery_date": "2026-11-06",
+        "inserted_records": 0,
+        "status": "collected"
+      },
+      "latest_ingested_at": "2026-11-05T11:15:12.527569Z",
+      "source": "Market Operator of Ukraine",
+      "source_id": "operator_market"
+    },
+    "weather": {
+      "interpretation": "regional_points_unweighted",
+      "source": "Open-Meteo"
+    }
+  },
+  "status": "complete",
+  "summary": {
+    "average_price": 11045.25125,
+    "maximum_price": 14999.5,
+    "minimum_price": 4790,
+    "prior_day": {
+      "absolute_change": 3073.4575,
+      "actual_period_count": 24,
+      "average_price": 7971.79375,
+      "delivery_date": "2026-11-05",
+      "expected_period_count": 24,
+      "percent_change": 38.554152257137865,
+      "status": "complete"
+    },
+    "total_volume_mwh": 74836.2,
+    "trailing_7_days": {
+      "absolute_change": 2900.8560714285713,
+      "average_price": 8144.395178571429,
+      "complete_days": 7,
+      "percent_change": 35.61782069540242,
+      "status": "complete"
+    }
+  },
+  "timezone": "Europe/Kyiv"
+}
