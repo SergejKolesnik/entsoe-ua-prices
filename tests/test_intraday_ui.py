@@ -86,12 +86,14 @@ class IntradayUiTests(unittest.TestCase):
         } for hour in range(24)]
         fake_streamlit = Mock()
         fake_streamlit.session_state = {}
+        column_batches = []
 
         def make_columns(spec):
             columns = [Mock(button=Mock(return_value=False))
                        for _ in range(spec if isinstance(spec, int) else len(spec))]
             if isinstance(spec, list):
                 columns[2].selectbox.return_value = profile_date
+            column_batches.append(columns)
             return columns
 
         fake_streamlit.columns.side_effect = make_columns
@@ -115,3 +117,5 @@ class IntradayUiTests(unittest.TestCase):
             [trace.name for trace in charts[1].data],
             ["Сальдо небалансів", "Замовлено ДЕЗ", "Куплено ДЕЗ"],
         )
+        self.assertEqual(column_batches[1][0].metric.call_args.args, ("Повне споживання · МВт·год", "240,0"))
+        self.assertEqual(column_batches[1][3].metric.call_args.args, ("Сальдо небалансів · МВт·год", "+0,00"))
