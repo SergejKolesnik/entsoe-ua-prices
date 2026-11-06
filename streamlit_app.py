@@ -1488,12 +1488,13 @@ def _draw_power_profile(
     purchased_total = complete_total("purchased_mwh")
     imbalance_total = complete_total("imbalance_mwh")
 
+    st.caption("Добові підсумки — МВт·год")
     metrics = st.columns(4)
-    metrics[0].metric("Повне споживання · МВт·год", format_card_value(consumption_total))
-    metrics[1].metric("Замовлено ДЕЗ · МВт·год", format_card_value(planned_total))
-    metrics[2].metric("Куплено ДЕЗ · МВт·год", format_card_value(purchased_total))
+    metrics[0].metric("Повне споживання", format_card_value(consumption_total))
+    metrics[1].metric("Замовлено ДЕЗ", format_card_value(planned_total))
+    metrics[2].metric("Куплено ДЕЗ", format_card_value(purchased_total))
     metrics[3].metric(
-        "Сальдо небалансів · МВт·год",
+        "Сальдо небалансів",
         format_card_value(imbalance_total, decimals=2, signed=True),
     )
 
