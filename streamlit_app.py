@@ -1472,6 +1472,12 @@ def _draw_power_profile(
             return None
         return float(values.sum())
 
+    def format_card_value(value: float | None, decimals: int = 1, signed: bool = False) -> str:
+        if value is None:
+            return "—"
+        sign = "+" if signed else ""
+        return format(value, f"{sign},.{decimals}f").replace(",", " ").replace(".", ",")
+
     technology_total = complete_total("technology_consumption_mwh")
     power_total = complete_total("power_consumption_mwh")
     consumption_total = (
@@ -1483,10 +1489,13 @@ def _draw_power_profile(
     imbalance_total = complete_total("imbalance_mwh")
 
     metrics = st.columns(4)
-    metrics[0].metric("Повне споживання", f"{consumption_total:,.1f} МВт·год".replace(",", " ") if consumption_total is not None else "—")
-    metrics[1].metric("Замовлено ДЕЗ", f"{planned_total:,.1f} МВт·год".replace(",", " ") if planned_total is not None else "—")
-    metrics[2].metric("Куплено ДЕЗ", f"{purchased_total:,.1f} МВт·год".replace(",", " ") if purchased_total is not None else "—")
-    metrics[3].metric("Сальдо небалансів", f"{imbalance_total:+,.2f} МВт·год".replace(",", " ") if imbalance_total is not None else "—")
+    metrics[0].metric("Повне споживання · МВт·год", format_card_value(consumption_total))
+    metrics[1].metric("Замовлено ДЕЗ · МВт·год", format_card_value(planned_total))
+    metrics[2].metric("Куплено ДЕЗ · МВт·год", format_card_value(purchased_total))
+    metrics[3].metric(
+        "Сальдо небалансів · МВт·год",
+        format_card_value(imbalance_total, decimals=2, signed=True),
+    )
 
     st.markdown(f"#### Споживання, надходження та віддача · {profile_date:%d.%m.%Y}")
     balance = go.Figure()
