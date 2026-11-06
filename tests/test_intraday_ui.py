@@ -117,5 +117,5 @@ class IntradayUiTests(unittest.TestCase):
             [trace.name for trace in charts[1].data],
             ["Сальдо небалансів", "Замовлено ДЕЗ", "Куплено ДЕЗ"],
         )
-        self.assertEqual(column_batches[1][0].metric.call_args.args, ("Повне споживання · МВт·год", "240,0"))
-        self.assertEqual(column_batches[1][3].metric.call_args.args, ("Сальдо небалансів · МВт·год", "+0,00"))
+        self.assertEqual(column_batches[1][0].metric.call_args.args, ("Повне споживання", "240,0"))
+        self.assertEqual(column_batches[1][3].metric.call_args.args, ("Сальдо небалансів", "+0,00"))
