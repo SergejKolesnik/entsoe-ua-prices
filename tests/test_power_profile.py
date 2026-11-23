@@ -47,6 +47,27 @@ class PowerProfileTests(unittest.TestCase):
             date(2026, 6, 1), date(2026, 6, 2), date(2026, 6, 3)
         })
 
+    def test_parser_maps_expanded_purchase_and_sale_columns_by_header(self):
+        values = [[None] * 16 for _ in range(27)]
+        values[0][1] = "01.11.2026"
+        values[1][1:15] = [
+            "Замовлено ДЕЗ (план купівлі)", "Обсяг, відібраний із мережі", "ГПУ", "СЕС",
+            "Віддали в мережу", "Споживання технолог.", "Споживання силової",
+            "Субабонент ТСН-13", "Субабонент Ф4 9Т", "Купівля", "Небаланси покупки",
+            "План продаж", "Факт продаж", "Небаланси продажу",
+        ]
+        for hour in range(24):
+            values[2 + hour][1:15] = ["28.7", "31.368", "4.111884", "", "2.16", "28.221141",
+                                      "5.098743", "0.111", "0.01", "29.129", "-0.429", "2.0", "1.5", "0.5"]
+
+        rows = parse_month_values(values, date(2026, 11, 1), "листопад 2026")
+        self.assertEqual(len(rows), 24)
+        self.assertEqual(rows[0].planned_purchase_mwh, Decimal("28.7"))
+        self.assertEqual(rows[0].purchased_mwh, Decimal("29.129"))
+        self.assertEqual(rows[0].planned_sale_mwh, Decimal("2.0"))
+        self.assertEqual(rows[0].sold_mwh, Decimal("1.5"))
+        self.assertEqual(rows[0].sale_imbalance_mwh, Decimal("0.5"))
+
     @patch("requests.get")
     def test_fetch_month_values_uses_bearer_token(self, get):
         response = Mock()

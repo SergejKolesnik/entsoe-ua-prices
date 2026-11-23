@@ -800,12 +800,13 @@ def _load_power_profile(database_path: str, date_from: date, date_to: date) -> p
     columns = [
         "delivery_date", "hour", "planned_purchase_mwh", "purchased_mwh", "gpu_mwh",
         "ses_mwh", "grid_export_mwh", "technology_consumption_mwh",
-        "power_consumption_mwh", "imbalance_mwh", "source_sheet", "imported_at_utc",
+        "power_consumption_mwh", "imbalance_mwh", "planned_sale_mwh", "sold_mwh",
+        "sale_imbalance_mwh", "source_sheet", "imported_at_utc",
     ]
     frame = pd.DataFrame(rows, columns=columns)
     if frame.empty:
         return frame
-    for column in columns[2:10]:
+    for column in columns[2:13]:
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
     return frame
 
@@ -1412,8 +1413,8 @@ def _draw_power_profile(
     st.markdown("### Погодинний профіль споживання та електробалансу")
     st.caption(
         "Технологічне й силове споживання показані окремо. Купівля, ГПУ та СЕС "
-        "утворюють надходження; віддача в мережу показана нижче нуля. План "
-        "купівлі та сальдо небалансів винесені в окремий графік."
+        "утворюють надходження; віддача в мережу показана нижче нуля. Плани — "
+        "пунктиром, факти — суцільними лініями."
     )
     try:
         profile = _load_power_profile(str(database_path), date_from, date_to)
@@ -1554,6 +1555,19 @@ def _draw_power_profile(
         hovertemplate="%{customdata}<br>Замовлено: %{y:,.2f} МВт·год<extra></extra>",
         customdata=selected["hour_label"],
     ))
+    for column, label, color in (
+        ("planned_sale_mwh", "План продажу", COST_GREEN),
+        ("sold_mwh", "Факт продажу", GPU_PURPLE),
+    ):
+        if column in selected and selected[column].notna().any():
+            procurement.add_trace(go.Scatter(
+                x=selected["hour"], y=selected[column], name=label,
+                mode="lines+markers",
+                line=dict(color=color, width=2 if "План" in label else 3,
+                          dash="dot" if "План" in label else "solid"),
+                hovertemplate=f"%{{customdata}}<br>{label}: %{{y:,.2f}} МВт·год<extra></extra>",
+                customdata=selected["hour_label"],
+            ))
     procurement.add_trace(go.Scatter(
         x=selected["hour"], y=selected["purchased_mwh"],
         name="Куплено ДЕЗ", mode="lines+markers",

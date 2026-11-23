@@ -92,6 +92,47 @@ def _number(value: object) -> Decimal | None:
         return None
 
 
+def _header_key(value: object) -> str:
+    """Normalize a sheet header for tolerant matching across monthly layouts."""
+
+    return re.sub(r"\s+", " ", str(value or "").strip().lower().replace("\u00a0", " "))
+
+
+def _field_positions(headers: list[object]) -> dict[str, int]:
+    """Map semantic profile fields to offsets inside one daily block."""
+
+    positions: dict[str, int] = {}
+    for offset, raw_header in enumerate(headers):
+        header = _header_key(raw_header)
+        if "план купівлі" in header or header == "замовлено дез":
+            positions.setdefault("planned_purchase_mwh", offset)
+        elif header == "купівля":
+            # The expanded layout has both network withdrawal and the
+            # settlement purchase; the latter is the requested fact value.
+            positions["purchased_mwh"] = offset
+        elif header == "куплено дез" or "відібраний із мережі" in header:
+            positions.setdefault("purchased_mwh", offset)
+        elif header == "гпу":
+            positions.setdefault("gpu_mwh", offset)
+        elif header == "сес":
+            positions.setdefault("ses_mwh", offset)
+        elif "віддали в мережу" in header:
+            positions.setdefault("grid_export_mwh", offset)
+        elif "споживання технолог" in header:
+            positions.setdefault("technology_consumption_mwh", offset)
+        elif "споживання силов" in header:
+            positions.setdefault("power_consumption_mwh", offset)
+        elif header in {"сальдо небалансів", "небаланси покупки"}:
+            positions.setdefault("imbalance_mwh", offset)
+        elif header == "план продаж":
+            positions.setdefault("planned_sale_mwh", offset)
+        elif header == "факт продаж":
+            positions.setdefault("sold_mwh", offset)
+        elif "небаланси продаж" in header:
+            positions.setdefault("sale_imbalance_mwh", offset)
+    return positions
+
+
 def parse_month_values(values: list[list[object]], reporting_month: date,
                        sheet_name: str) -> list[PowerProfileObservation]:
     """Parse horizontal daily blocks returned by the Sheets API."""
@@ -119,15 +160,38 @@ def parse_month_values(values: list[list[object]], reporting_month: date,
         if day in seen_days or day < 1 or day > expected_days:
             raise ValueError(f"{sheet_name}: duplicate or invalid day header {day}")
         seen_days.add(day)
+        end = date_starts[index + 1][0] if index + 1 < len(date_starts) else max(
+            len(row) for row in values
+        )
+        positions = _field_positions(values[1][start:end] if len(values) > 1 else [])
+        # Legacy monthly sheets have no usable header row; preserve their
+        # established first-eight-column contract as a compatibility fallback.
+        if not positions:
+            positions = {
+                field: offset for offset, field in enumerate((
+                    "planned_purchase_mwh", "purchased_mwh", "gpu_mwh", "ses_mwh",
+                    "grid_export_mwh", "technology_consumption_mwh",
+                    "power_consumption_mwh", "imbalance_mwh",
+                ))
+            }
         block: list[PowerProfileObservation] = []
         for hour in range(24):
             row = values[2 + hour] if 2 + hour < len(values) else []
-            numbers = [_number(row[start + offset] if start + offset < len(row) else "")
-                       for offset in range(8)]
+            def value(field: str) -> Decimal | None:
+                offset = positions.get(field)
+                return _number(row[start + offset]) if offset is not None and start + offset < len(row) else None
+
+            numbers = [value(field) for field in (
+                "planned_purchase_mwh", "purchased_mwh", "gpu_mwh", "ses_mwh",
+                "grid_export_mwh", "technology_consumption_mwh", "power_consumption_mwh",
+                "imbalance_mwh",
+            )]
             if all(value is None for value in numbers):
                 continue
             block.append(PowerProfileObservation(reporting_month.replace(day=day), hour,
-                                                 *numbers, sheet_name))
+                                                 *numbers, sheet_name,
+                                                 value("planned_sale_mwh"), value("sold_mwh"),
+                                                 value("sale_imbalance_mwh")))
         if block:
             if len(block) != 24:
                 raise ValueError(f"{sheet_name}: day {day} has {len(block)} hourly rows")

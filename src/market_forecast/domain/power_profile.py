@@ -22,6 +22,9 @@ class PowerProfileObservation:
     power_consumption_mwh: Decimal | None
     imbalance_mwh: Decimal | None
     source_sheet: str
+    planned_sale_mwh: Decimal | None = None
+    sold_mwh: Decimal | None = None
+    sale_imbalance_mwh: Decimal | None = None
 
     def __post_init__(self) -> None:
         if not 0 <= self.hour < 24:
@@ -29,7 +32,8 @@ class PowerProfileObservation:
         values = (
             self.planned_purchase_mwh, self.purchased_mwh, self.gpu_mwh,
             self.ses_mwh, self.grid_export_mwh, self.technology_consumption_mwh,
-            self.power_consumption_mwh, self.imbalance_mwh,
+            self.power_consumption_mwh, self.imbalance_mwh, self.planned_sale_mwh,
+            self.sold_mwh, self.sale_imbalance_mwh,
         )
         if all(value is None for value in values):
             raise ValueError("power profile row has no numeric observations")
