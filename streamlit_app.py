@@ -1418,13 +1418,18 @@ def _draw_power_profile(
     )
     try:
         profile = _load_power_profile(str(database_path), date_from, date_to)
-    except Exception:
+    except Exception as exc:
         # This optional source must not prevent the rest of the electricity
         # tabs from rendering when its table or adapter is temporarily stale.
         st.warning(
             "Профіль споживання тимчасово недоступний. "
             "Інші вкладки електроенергії працюють незалежно."
         )
+        if st.session_state.get("show_technical_status", False):
+            st.caption(
+                "Технічна причина: "
+                f"{type(exc).__name__}: {str(exc)[:240]}"
+            )
         return
     if profile.empty:
         st.info("Профіль споживання ще не імпортовано до бази даних.")
