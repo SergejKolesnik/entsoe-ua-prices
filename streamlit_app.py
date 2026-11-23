@@ -1559,7 +1559,7 @@ def _draw_power_profile(
         ("planned_sale_mwh", "План продажу", COST_GREEN),
         ("sold_mwh", "Факт продажу", GPU_PURPLE),
     ):
-        if selected[column].notna().any():
+        if column in selected and selected[column].notna().any():
             procurement.add_trace(go.Scatter(
                 x=selected["hour"], y=selected[column], name=label,
                 mode="lines+markers",
