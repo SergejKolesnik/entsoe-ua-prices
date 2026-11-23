@@ -1,6 +1,8 @@
 import unittest
 
-from market_forecast.sources.rdn_diff_tariff import add_aggregates, parse_month_csv
+import pandas as pd
+
+from market_forecast.sources.rdn_diff_tariff import add_aggregates, hourly_cost_total_uah, parse_month_csv
 
 
 class RdnDiffTariffTests(unittest.TestCase):
@@ -44,6 +46,16 @@ class RdnDiffTariffTests(unittest.TestCase):
         self.assertEqual(frame.loc[0, "cost_hour_00"], 1)
         self.assertEqual(frame.loc[0, "cost_total"], 24)
         self.assertEqual(frame.loc[0, "weighted_nzf"], 100)
+        self.assertEqual(
+            hourly_cost_total_uah(frame[[f"cost_hour_{hour:02d}" for hour in range(24)]].iloc[0]),
+            24_000,
+        )
+
+
+    def test_hourly_cost_total_is_missing_when_any_hour_is_missing(self):
+        hourly_costs = pd.Series([1] * 23 + [pd.NA])
+
+        self.assertIsNone(hourly_cost_total_uah(hourly_costs))
 
 
 if __name__ == "__main__":

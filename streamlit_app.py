@@ -527,10 +527,38 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
     if st.session_state.get("_rdn_diff_default_key") != selector_key:
         st.session_state[selector_key] = comparison_date
         st.session_state["_rdn_diff_default_key"] = selector_key
+    # Keep the long historical list available, but make the common choices
+    # explicit so the user never has to scroll back to an old default date.
+    calendar_key = f"rdn_diff_tariff_calendar_{analysis_date.isoformat()}"
+    if st.session_state.get("_rdn_diff_calendar_key") != selector_key:
+        st.session_state[calendar_key] = comparison_date
+        st.session_state["_rdn_diff_calendar_key"] = selector_key
+    quick_columns = st.columns([1, 1, 1, 2.4])
+    yesterday_date = preferred_date if preferred_date in available_dates else available_dates[-1]
+    if quick_columns[0].button("Вчора", key=f"rdn_diff_yesterday_{analysis_date.isoformat()}"):
+        st.session_state[selector_key] = yesterday_date
+        st.session_state[calendar_key] = yesterday_date
+        st.rerun()
+    if quick_columns[1].button("Останній доступний", key=f"rdn_diff_latest_{analysis_date.isoformat()}"):
+        st.session_state[selector_key] = available_dates[-1]
+        st.session_state[calendar_key] = available_dates[-1]
+        st.rerun()
+    calendar_date = quick_columns[2].date_input(
+        "Календар",
+        min_value=available_dates[0],
+        max_value=available_dates[-1],
+        key=calendar_key,
+        format="DD.MM.YYYY",
+        label_visibility="collapsed",
+    )
+    if calendar_date in available_dates and st.session_state.get(selector_key) != calendar_date:
+        st.session_state[selector_key] = calendar_date
+        st.rerun()
+    quick_columns[3].caption("Швидкий вибір завершеної доби")
     comparison_date = st.selectbox(
         "Завершений день для погодинного аналізу",
         available_dates,
-        index=selected_index,
+        index=available_dates.index(st.session_state.get(selector_key, comparison_date)),
         format_func=lambda value: value.strftime("%d.%m.%Y"),
         key=selector_key,
     )
@@ -546,12 +574,18 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
     hourly["hourly_cost"] = hourly["hourly_cost"].fillna(
         hourly["actual_volume"] * hourly["rdn_price"] / 1000
     )
+    hourly_costs = pd.to_numeric(hourly["hourly_cost"], errors="coerce")
+    daily_actual_cost_uah = (
+        float(hourly_costs.sum() * 1000)
+        if not hourly_costs.empty and hourly_costs.notna().all()
+        else None
+    )
     hourly_figure = go.Figure()
     hourly_figure.add_trace(go.Scatter(
         x=hourly["hour"], y=hourly["rdn_price"], name="РДН, грн/МВт·год",
         mode="lines+markers", line=dict(color=AMBER, width=3),
         customdata=hourly[["actual_volume", "hourly_cost"]],
-        hovertemplate="Година %{x}<br>РДН: %{y:,.0f} грн/МВт·год<br>Обсяг: %{customdata[0]:,.2f}<br>Витрати: %{customdata[1]:,.2f} грн<extra></extra>",
+        hovertemplate="Година %{x}<br>РДН: %{y:,.0f} грн/МВт·год<br>Обсяг: %{customdata[0]:,.2f} МВт·год<br>Витрати: %{customdata[1]:,.2f} тис. грн<extra></extra>",
         yaxis="y",
     ))
     hourly_figure.add_trace(go.Bar(
@@ -561,18 +595,29 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
         yaxis="y2",
     ))
     hourly_figure.add_trace(go.Bar(
-        x=hourly["hour"], y=hourly["hourly_cost"], name="Витрати за годину",
-        marker_color=COST_GREEN, hovertemplate="Година %{x}<br>Витрати: %{y:,.2f} грн<extra></extra>",
+        x=hourly["hour"], y=hourly["hourly_cost"], name="Витрати за годину, тис. грн",
+        marker_color=COST_GREEN, hovertemplate="Година %{x}<br>Витрати: %{y:,.2f} тис. грн<extra></extra>",
         yaxis="y2",
     ))
     hourly_figure.update_layout(
         height=520, margin=dict(l=10, r=95, t=25, b=10),
         xaxis=dict(title="Година"),
         yaxis=dict(title="RDN, грн/МВт·год"),
-        yaxis2=dict(title="Обсяг / витрати", overlaying="y", side="right"),
+        yaxis2=dict(title="Обсяг, МВт·год / витрати, тис. грн", overlaying="y", side="right"),
         legend=dict(orientation="h", y=1.12), barmode="group", showlegend=True,
     )
     st.plotly_chart(hourly_figure, width="stretch")
+    st.metric(
+        "Фактичні витрати на електроенергію за день",
+        f"{daily_actual_cost_uah:,.0f} грн".replace(",", " ")
+        if daily_actual_cost_uah is not None
+        else "—",
+    )
+    st.caption(
+        "Зелені стовпчики та їхні підказки — у тис. грн; денний підсумок "
+        "дорівнює їхній сумі, помноженій на 1 000. Якщо бракує хоча б "
+        "однієї погодинної витрати, підсумок не показується."
+    )
 
     try:
         self_generation = _load_self_generation()
@@ -651,6 +696,67 @@ def _draw_rdn_diff_tariff(selected_date: date) -> None:
     st.markdown("#### Порівняння за днями")
     st.plotly_chart(daily_figure, width="stretch")
 
+    cost_columns = [f"cost_hour_{hour:02d}" for hour in range(24)]
+    cost_values = daily.reindex(columns=cost_columns).apply(
+        pd.to_numeric, errors="coerce"
+    )
+    daily_cost_uah = cost_values.sum(axis=1, min_count=len(cost_columns)) * 1000
+    cost_month_start = comparison_date.replace(day=1)
+    cost_month_mask = (
+        (daily["delivery_date"] >= cost_month_start)
+        & (daily["delivery_date"] <= comparison_date)
+    )
+    cost_month = daily.loc[cost_month_mask, ["delivery_date", "rdn_daily"]].copy()
+    cost_month["cost_uah"] = daily_cost_uah.loc[cost_month_mask]
+    month_label = UKRAINIAN_MONTHS[comparison_date.month]
+    st.markdown(
+        f"#### Фактичні витрати за днями · {month_label} {comparison_date.year}"
+    )
+    if cost_month["cost_uah"].notna().any():
+        cost_figure = go.Figure()
+        cost_figure.add_trace(go.Bar(
+            x=cost_month["delivery_date"],
+            y=cost_month["cost_uah"],
+            name="Фактичні витрати",
+            marker_color=COST_GREEN,
+            hovertemplate="%{x|%d.%m.%Y}<br>Фактичні витрати: %{y:,.0f} грн<extra></extra>",
+            yaxis="y",
+        ))
+        cost_figure.add_trace(go.Scatter(
+            x=cost_month["delivery_date"],
+            y=cost_month["rdn_daily"],
+            name="Середньодобова ціна РДН",
+            mode="lines+markers",
+            line=dict(color=AMBER, width=3),
+            marker=dict(size=7),
+            connectgaps=False,
+            hovertemplate="%{x|%d.%m.%Y}<br>Середньодобова ціна РДН: %{y:,.0f} грн/МВт·год<extra></extra>",
+            yaxis="y2",
+        ))
+        cost_figure.update_layout(
+            height=380,
+            margin=dict(l=10, r=75, t=30, b=10),
+            xaxis=dict(title="Дата"),
+            yaxis=dict(title="Витрати, грн/день"),
+            yaxis2=dict(
+                title="РДН, грн/МВт·год",
+                overlaying="y",
+                side="right",
+                showgrid=False,
+            ),
+            legend=dict(orientation="h", y=1.12),
+            barmode="group",
+            showlegend=True,
+        )
+        st.plotly_chart(cost_figure, width="stretch")
+        st.caption(
+            "Показано дні від початку місяця до вибраної дати. Кожна точка — "
+            "сума 24 погодинних фактичних витрат, переведена з тис. грн у грн. "
+            "Дні з неповними погодинними даними пропущено."
+        )
+    else:
+        st.info("У цьому місяці немає днів із повним набором погодинних витрат.")
+
     monthly_figure = go.Figure()
     monthly_figure.add_trace(go.Scatter(x=monthly["month"], y=monthly["rdn_daily"], name="РДН, середнє за дні", mode="lines+markers", line=dict(color=AMBER, width=3)))
     monthly_figure.add_trace(go.Scatter(x=monthly["month"], y=monthly["weighted_nzf"], name="НЗФ, середнє за дні", mode="lines+markers", line=dict(color=BLUE, width=3)))
@@ -694,13 +800,12 @@ def _load_power_profile(database_path: str, date_from: date, date_to: date) -> p
     columns = [
         "delivery_date", "hour", "planned_purchase_mwh", "purchased_mwh", "gpu_mwh",
         "ses_mwh", "grid_export_mwh", "technology_consumption_mwh",
-        "power_consumption_mwh", "imbalance_mwh", "planned_sale_mwh", "sold_mwh",
-        "sale_imbalance_mwh", "source_sheet", "imported_at_utc",
+        "power_consumption_mwh", "imbalance_mwh", "source_sheet", "imported_at_utc",
     ]
     frame = pd.DataFrame(rows, columns=columns)
     if frame.empty:
         return frame
-    for column in columns[2:13]:
+    for column in columns[2:10]:
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
     return frame
 
@@ -1279,13 +1384,21 @@ def _complete_power_profile_dates(profile: pd.DataFrame, cutoff: date) -> list[d
 
     completeness = profile.groupby("delivery_date").agg(
         hours=("hour", "nunique"),
+        planned=("planned_purchase_mwh", "count"),
         purchased=("purchased_mwh", "count"),
+        technology=("technology_consumption_mwh", "count"),
         power=("power_consumption_mwh", "count"),
+        grid_export=("grid_export_mwh", "count"),
+        imbalance=("imbalance_mwh", "count"),
     )
     complete_dates = completeness.index[
         (completeness["hours"] == 24)
+        & (completeness["planned"] == 24)
         & (completeness["purchased"] == 24)
+        & (completeness["technology"] == 24)
         & (completeness["power"] == 24)
+        & (completeness["grid_export"] == 24)
+        & (completeness["imbalance"] == 24)
         & (completeness.index <= cutoff)
     ]
     return sorted(complete_dates)
@@ -1294,12 +1407,13 @@ def _complete_power_profile_dates(profile: pd.DataFrame, cutoff: date) -> list[d
 def _draw_power_profile(
     database_path: Path, date_from: date, date_to: date, selected_date: date
 ) -> None:
-    """Render the daily and hourly NZF purchase, consumption, and sale balance."""
+    """Render the selected day's physical electricity balance and procurement."""
 
-    st.markdown("### Споживання НЗФ за добу")
+    st.markdown("### Погодинний профіль споживання та електробалансу")
     st.caption(
-        "План і факт купівлі, силове споживання, план і факт продажу та небаланс покупки. "
-        "Технологічне споживання й допоміжна генерація залишені поза цим оглядом."
+        "Технологічне й силове споживання показані окремо. Купівля, ГПУ та СЕС "
+        "утворюють надходження; віддача в мережу показана нижче нуля. План "
+        "купівлі та сальдо небалансів винесені в окремий графік."
     )
     try:
         profile = _load_power_profile(str(database_path), date_from, date_to)
@@ -1314,81 +1428,177 @@ def _draw_power_profile(
     if profile.empty:
         st.info("Профіль споживання ще не імпортовано до бази даних.")
         return
-    # A source sheet can expose future daily blocks before their factual cells
-    # are filled. A date is complete only when all 24 core factual cells exist.
-    latest_known_date = min(selected_date, datetime.now(KYIV).date())
+    # Future daily blocks can exist before the source cells are filled. Require
+    # all values used by the selected-day totals and procurement chart.
+    latest_known_date = min(date_to, datetime.now(KYIV).date())
     latest_completed_date = latest_known_date - timedelta(days=1)
     complete_dates = _complete_power_profile_dates(profile, latest_completed_date)
     if len(complete_dates) == 0:
         st.info("Немає повної завершеної доби для профілю споживання.")
         return
     complete_profile = profile[profile["delivery_date"].isin(complete_dates)]
-    daily = complete_profile.groupby("delivery_date", as_index=False).agg(
-        planned_purchase_mwh=("planned_purchase_mwh", "sum"),
-        purchased_mwh=("purchased_mwh", "sum"),
-        power_consumption_mwh=("power_consumption_mwh", "sum"),
-        grid_export_mwh=("grid_export_mwh", "sum"),
-        imbalance_mwh=("imbalance_mwh", "sum"),
-        planned_sale_mwh=("planned_sale_mwh", lambda values: values.sum(min_count=1)),
-        sold_mwh=("sold_mwh", lambda values: values.sum(min_count=1)),
-    )
-    profile_date = complete_dates[-1]
-    profile_date = st.selectbox(
-        "Доба для погодинного аналізу",
+    default_date = complete_dates[-1]
+    date_key = f"power_profile_selected_date_{date_from}_{date_to}"
+    if st.session_state.get(date_key) not in complete_dates:
+        st.session_state[date_key] = default_date
+    yesterday = min(selected_date, datetime.now(KYIV).date()) - timedelta(days=1)
+    controls = st.columns([1, 1, 3])
+    if controls[0].button("Останній доступний", key=f"power_profile_latest_{date_from}_{date_to}"):
+        st.session_state[date_key] = default_date
+        st.rerun()
+    yesterday_date = max((value for value in complete_dates if value <= yesterday), default=default_date)
+    if controls[1].button("Вчора", key=f"power_profile_yesterday_{date_from}_{date_to}"):
+        st.session_state[date_key] = yesterday_date
+        st.rerun()
+    profile_date = controls[2].selectbox(
+        "Завершена доба",
         complete_dates,
-        index=len(complete_dates) - 1,
+        index=complete_dates.index(st.session_state[date_key]),
         format_func=lambda value: value.strftime("%d.%m.%Y"),
+        key=date_key,
+        label_visibility="collapsed",
     )
     selected = complete_profile[complete_profile["delivery_date"] == profile_date].sort_values("hour")
+    selected = selected.copy()
+    selected["hour_label"] = selected["hour"].map(
+        lambda hour: f"{int(hour):02d}:00–{(int(hour) + 1) % 24:02d}:00"
+    )
+    selected["consumption_x"] = selected["hour"] - 0.19
+    selected["supply_x"] = selected["hour"] + 0.19
+
+    def complete_total(column: str) -> float | None:
+        values = pd.to_numeric(selected[column], errors="coerce")
+        if len(values) != 24 or values.count() != 24:
+            return None
+        return float(values.sum())
+
+    def format_card_value(value: float | None, decimals: int = 1, signed: bool = False) -> str:
+        if value is None:
+            return "—"
+        sign = "+" if signed else ""
+        return format(value, f"{sign},.{decimals}f").replace(",", " ").replace(".", ",")
+
+    technology_total = complete_total("technology_consumption_mwh")
+    power_total = complete_total("power_consumption_mwh")
+    consumption_total = (
+        technology_total + power_total
+        if technology_total is not None and power_total is not None else None
+    )
+    planned_total = complete_total("planned_purchase_mwh")
+    purchased_total = complete_total("purchased_mwh")
+    imbalance_total = complete_total("imbalance_mwh")
+
+    st.caption("Добові підсумки — МВт·год")
     metrics = st.columns(4)
-    selected_day = daily[daily["delivery_date"] == profile_date]
-    if not selected_day.empty:
-        row = selected_day.iloc[0]
-        metrics[0].metric("Факт купівлі", f"{row['purchased_mwh']:,.1f} МВт·год".replace(",", " "))
-        metrics[1].metric("Силове споживання", f"{row['power_consumption_mwh']:,.1f} МВт·год".replace(",", " "))
-        metrics[2].metric("Факт продажу", f"{row['sold_mwh']:,.1f} МВт·год".replace(",", " ") if pd.notna(row['sold_mwh']) else "—")
-        metrics[3].metric("Небаланс", f"{row['imbalance_mwh']:,.1f} МВт·год".replace(",", " "))
-    st.caption(f"Останній доступний завершений день профілю: {profile_date:%d.%m.%Y}")
-    st.markdown("#### Щоденна динаміка купівлі, силового споживання та продажу")
-    daily_figure = go.Figure()
-    daily_figure.add_trace(go.Bar(x=daily["delivery_date"], y=daily["purchased_mwh"], name="Факт купівлі", marker_color=AMBER))
-    daily_figure.add_trace(go.Scatter(x=daily["delivery_date"], y=daily["planned_purchase_mwh"], name="План купівлі", mode="lines+markers", line=dict(color=MUTED, width=2, dash="dash")))
-    daily_figure.add_trace(go.Scatter(x=daily["delivery_date"], y=daily["power_consumption_mwh"], name="Силове споживання", mode="lines+markers", line=dict(color=BLUE, width=3)))
-    if daily["planned_sale_mwh"].notna().any():
-        daily_figure.add_trace(go.Scatter(x=daily["delivery_date"], y=daily["planned_sale_mwh"], name="План продажу", mode="lines+markers", line=dict(color=COST_GREEN, width=2, dash="dot")))
-    if daily["sold_mwh"].notna().any():
-        daily_figure.add_trace(go.Scatter(x=daily["delivery_date"], y=daily["sold_mwh"], name="Факт продажу", mode="lines+markers", line=dict(color=GPU_PURPLE, width=3)))
-    daily_figure.update_layout(**_chart_layout(360, "МВт·год за добу"))
-    daily_figure.update_xaxes(title="Дата")
-    st.plotly_chart(daily_figure, width="stretch")
-    st.markdown(f"#### Погодинний баланс купівлі, споживання та продажу · {profile_date:%d.%m.%Y}")
-    hourly_figure = go.Figure()
-    for column, label, color in (
-        ("planned_purchase_mwh", "План купівлі", MUTED),
-        ("purchased_mwh", "Факт купівлі", AMBER),
-        ("power_consumption_mwh", "Силове споживання", BLUE),
-        ("planned_sale_mwh", "План продажу", COST_GREEN),
-        ("sold_mwh", "Факт продажу", GPU_PURPLE),
-    ):
-        if selected[column].notna().any():
-            hourly_figure.add_trace(go.Scatter(
-                x=selected["hour"], y=selected[column], name=label, mode="lines+markers",
-                connectgaps=False,
-                line=dict(color=color, width=3 if "Факт" in label or "споживання" in label else 2,
-                          dash="dot" if "План" in label else "solid"),
-            ))
-    hourly_figure.update_layout(**_chart_layout(360, "МВт·год за годину"))
-    hourly_figure.update_xaxes(title="Година", dtick=2, range=[0, 23])
-    st.caption("Пунктир — план; суцільна лінія — факт. Відсутні значення залишаються пропусками, а не нулями.")
-    st.plotly_chart(hourly_figure, width="stretch")
-    st.markdown("#### Погодинні небаланси")
-    imbalance_figure = go.Figure(go.Bar(
-        x=selected["hour"], y=selected["imbalance_mwh"], name="Небаланс", marker_color=AMBER,
-        hovertemplate="Година %{x}<br>Небаланс: %{y:,.2f} МВт·год<extra></extra>",
+    metrics[0].metric("Повне споживання", format_card_value(consumption_total))
+    metrics[1].metric("Замовлено ДЕЗ", format_card_value(planned_total))
+    metrics[2].metric("Куплено ДЕЗ", format_card_value(purchased_total))
+    metrics[3].metric(
+        "Сальдо небалансів",
+        format_card_value(imbalance_total, decimals=2, signed=True),
+    )
+
+    st.markdown(f"#### Споживання, надходження та віддача · {profile_date:%d.%m.%Y}")
+    balance = go.Figure()
+    balance.add_trace(go.Bar(
+        x=selected["consumption_x"], y=selected["technology_consumption_mwh"],
+        width=0.34, name="Споживання технологічне", marker_color=BLUE,
+        hovertemplate="%{customdata}<br>Технологічне: %{y:,.2f} МВт·год<extra></extra>",
+        customdata=selected["hour_label"],
     ))
-    imbalance_figure.update_layout(**_chart_layout(300, "МВт·год за годину"))
-    imbalance_figure.update_xaxes(title="Година", dtick=2)
-    st.plotly_chart(imbalance_figure, width="stretch")
+    balance.add_trace(go.Bar(
+        x=selected["consumption_x"], y=selected["power_consumption_mwh"],
+        width=0.34, name="Споживання силове", marker_color="#69A9F5",
+        hovertemplate="%{customdata}<br>Силове: %{y:,.2f} МВт·год<extra></extra>",
+        customdata=selected["hour_label"],
+    ))
+    for column, label, color in (
+        ("purchased_mwh", "Куплено з мережі", AMBER),
+        ("gpu_mwh", "Генерація ГПУ", GPU_PURPLE),
+        ("ses_mwh", "Генерація СЕС", SOLAR_YELLOW),
+    ):
+        balance.add_trace(go.Bar(
+            x=selected["supply_x"], y=selected[column], width=0.34,
+            name=label, marker_color=color,
+            hovertemplate=f"%{{customdata}}<br>{label}: %{{y:,.2f}} МВт·год<extra></extra>",
+            customdata=selected["hour_label"],
+        ))
+    balance.add_trace(go.Bar(
+        x=selected["supply_x"], y=-pd.to_numeric(selected["grid_export_mwh"], errors="coerce"),
+        width=0.34, name="Віддали в мережу", marker_color=MUTED,
+        hovertemplate="%{customdata[0]}<br>Віддали в мережу: %{customdata[1]:,.2f} МВт·год<extra></extra>",
+        customdata=selected[["hour_label", "grid_export_mwh"]],
+    ))
+    balance.update_layout(
+        height=460, margin=dict(l=10, r=10, t=25, b=10),
+        barmode="relative", bargap=0.18,
+        xaxis=dict(title="Година доби", tickmode="array", tickvals=list(range(24)),
+                   ticktext=[f"{hour:02d}:00" for hour in range(24)]),
+        yaxis=dict(title="МВт·год за годину", zeroline=True, zerolinewidth=1.5),
+        legend=dict(orientation="h", y=1.16), showlegend=True,
+    )
+    st.plotly_chart(balance, width="stretch")
+
+    st.markdown("#### Замовлення, купівля та сальдо небалансів")
+    procurement = go.Figure()
+    procurement.add_trace(go.Bar(
+        x=selected["hour"], y=selected["imbalance_mwh"], name="Сальдо небалансів",
+        marker_color=[AMBER if value >= 0 else BLUE for value in selected["imbalance_mwh"]],
+        hovertemplate="%{customdata}<br>Сальдо: %{y:+,.2f} МВт·год<extra></extra>",
+        customdata=selected["hour_label"],
+    ))
+    procurement.add_trace(go.Scatter(
+        x=selected["hour"], y=selected["planned_purchase_mwh"],
+        name="Замовлено ДЕЗ", mode="lines+markers",
+        line=dict(color=MUTED, width=2, dash="dash"),
+        hovertemplate="%{customdata}<br>Замовлено: %{y:,.2f} МВт·год<extra></extra>",
+        customdata=selected["hour_label"],
+    ))
+    procurement.add_trace(go.Scatter(
+        x=selected["hour"], y=selected["purchased_mwh"],
+        name="Куплено ДЕЗ", mode="lines+markers",
+        line=dict(color=AMBER, width=3),
+        hovertemplate="%{customdata}<br>Куплено: %{y:,.2f} МВт·год<extra></extra>",
+        customdata=selected["hour_label"],
+    ))
+    procurement.update_layout(
+        height=390, margin=dict(l=10, r=10, t=25, b=10),
+        xaxis=dict(title="Година доби", tickmode="array", tickvals=list(range(24)),
+                   ticktext=[f"{hour:02d}:00" for hour in range(24)]),
+        yaxis=dict(title="МВт·год за годину", zeroline=True, zerolinewidth=1.5),
+        legend=dict(orientation="h", y=1.16), showlegend=True,
+    )
+    st.plotly_chart(procurement, width="stretch")
+    st.caption(
+        "Сальдо небалансів — окреме значення з джерела; воно не обчислюється "
+        "як проста різниця між купівлею та споживанням."
+    )
+
+    balance_columns = (
+        "purchased_mwh", "gpu_mwh", "ses_mwh", "grid_export_mwh",
+        "technology_consumption_mwh", "power_consumption_mwh",
+    )
+    daily_balance_values = {column: complete_total(column) for column in balance_columns}
+    if all(value is not None for value in daily_balance_values.values()):
+        physical_residual = (
+            daily_balance_values["purchased_mwh"]
+            + daily_balance_values["gpu_mwh"]
+            + daily_balance_values["ses_mwh"]
+            - daily_balance_values["grid_export_mwh"]
+            - daily_balance_values["technology_consumption_mwh"]
+            - daily_balance_values["power_consumption_mwh"]
+        )
+        st.caption(
+            f"Фізичний баланс: купівля + ГПУ + СЕС − віддача − споживання = "
+            f"{physical_residual:+.2f} МВт·год. Окреме сальдо небалансів "
+            f"{imbalance_total:+.2f} МВт·год — значення з джерела, не арифметична "
+            "різниця купівлі та споживання."
+        )
+    else:
+        st.caption(
+            "Порожні значення джерел не підміняються нулями. Фізичний баланс "
+            "не розраховано, бо для частини доби бракує погодинних значень."
+        )
 
 
 @st.cache_data(ttl=300)
