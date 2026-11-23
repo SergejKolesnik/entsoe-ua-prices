@@ -694,12 +694,13 @@ def _load_power_profile(database_path: str, date_from: date, date_to: date) -> p
     columns = [
         "delivery_date", "hour", "planned_purchase_mwh", "purchased_mwh", "gpu_mwh",
         "ses_mwh", "grid_export_mwh", "technology_consumption_mwh",
-        "power_consumption_mwh", "imbalance_mwh", "source_sheet", "imported_at_utc",
+        "power_consumption_mwh", "imbalance_mwh", "planned_sale_mwh", "sold_mwh",
+        "sale_imbalance_mwh", "source_sheet", "imported_at_utc",
     ]
     frame = pd.DataFrame(rows, columns=columns)
     if frame.empty:
         return frame
-    for column in columns[2:10]:
+    for column in columns[2:13]:
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
     return frame
 
@@ -1280,13 +1281,11 @@ def _complete_power_profile_dates(profile: pd.DataFrame, cutoff: date) -> list[d
         hours=("hour", "nunique"),
         purchased=("purchased_mwh", "count"),
         power=("power_consumption_mwh", "count"),
-        grid_export=("grid_export_mwh", "count"),
     )
     complete_dates = completeness.index[
         (completeness["hours"] == 24)
         & (completeness["purchased"] == 24)
         & (completeness["power"] == 24)
-        & (completeness["grid_export"] == 24)
         & (completeness.index <= cutoff)
     ]
     return sorted(complete_dates)
@@ -1295,11 +1294,11 @@ def _complete_power_profile_dates(profile: pd.DataFrame, cutoff: date) -> list[d
 def _draw_power_profile(
     database_path: Path, date_from: date, date_to: date, selected_date: date
 ) -> None:
-    """Render daily NZF power consumption, grid export, and imbalances."""
+    """Render the daily and hourly NZF purchase, consumption, and sale balance."""
 
     st.markdown("### Споживання НЗФ за добу")
     st.caption(
-        "План і факт купівлі, силове споживання, віддача в мережу та небаланси. "
+        "План і факт купівлі, силове споживання, план і факт продажу та небаланс покупки. "
         "Технологічне споживання й допоміжна генерація залишені поза цим оглядом."
     )
     try:
@@ -1316,8 +1315,7 @@ def _draw_power_profile(
         st.info("Профіль споживання ще не імпортовано до бази даних.")
         return
     # A source sheet can expose future daily blocks before their factual cells
-    # are filled.  A date is complete only when all 24 hours have the three
-    # values used by this view; row count alone is not sufficient.
+    # are filled. A date is complete only when all 24 core factual cells exist.
     latest_known_date = min(selected_date, datetime.now(KYIV).date())
     latest_completed_date = latest_known_date - timedelta(days=1)
     complete_dates = _complete_power_profile_dates(profile, latest_completed_date)
@@ -1331,35 +1329,57 @@ def _draw_power_profile(
         power_consumption_mwh=("power_consumption_mwh", "sum"),
         grid_export_mwh=("grid_export_mwh", "sum"),
         imbalance_mwh=("imbalance_mwh", "sum"),
+        planned_sale_mwh=("planned_sale_mwh", lambda values: values.sum(min_count=1)),
+        sold_mwh=("sold_mwh", lambda values: values.sum(min_count=1)),
     )
     profile_date = complete_dates[-1]
+    profile_date = st.selectbox(
+        "Доба для погодинного аналізу",
+        complete_dates,
+        index=len(complete_dates) - 1,
+        format_func=lambda value: value.strftime("%d.%m.%Y"),
+    )
     selected = complete_profile[complete_profile["delivery_date"] == profile_date].sort_values("hour")
     metrics = st.columns(4)
     selected_day = daily[daily["delivery_date"] == profile_date]
     if not selected_day.empty:
         row = selected_day.iloc[0]
-        metrics[0].metric("Куплено за добу", f"{row['purchased_mwh']:,.1f} МВт·год".replace(",", " "))
+        metrics[0].metric("Факт купівлі", f"{row['purchased_mwh']:,.1f} МВт·год".replace(",", " "))
         metrics[1].metric("Силове споживання", f"{row['power_consumption_mwh']:,.1f} МВт·год".replace(",", " "))
-        metrics[2].metric("Віддача в мережу", f"{row['grid_export_mwh']:,.1f} МВт·год".replace(",", " "))
+        metrics[2].metric("Факт продажу", f"{row['sold_mwh']:,.1f} МВт·год".replace(",", " ") if pd.notna(row['sold_mwh']) else "—")
         metrics[3].metric("Небаланс", f"{row['imbalance_mwh']:,.1f} МВт·год".replace(",", " "))
     st.caption(f"Останній доступний завершений день профілю: {profile_date:%d.%m.%Y}")
-    st.markdown("#### План, факт купівлі та силове споживання")
+    st.markdown("#### Щоденна динаміка купівлі, силового споживання та продажу")
     daily_figure = go.Figure()
     daily_figure.add_trace(go.Bar(x=daily["delivery_date"], y=daily["purchased_mwh"], name="Факт купівлі", marker_color=AMBER))
     daily_figure.add_trace(go.Scatter(x=daily["delivery_date"], y=daily["planned_purchase_mwh"], name="План купівлі", mode="lines+markers", line=dict(color=MUTED, width=2, dash="dash")))
     daily_figure.add_trace(go.Scatter(x=daily["delivery_date"], y=daily["power_consumption_mwh"], name="Силове споживання", mode="lines+markers", line=dict(color=BLUE, width=3)))
+    if daily["planned_sale_mwh"].notna().any():
+        daily_figure.add_trace(go.Scatter(x=daily["delivery_date"], y=daily["planned_sale_mwh"], name="План продажу", mode="lines+markers", line=dict(color=COST_GREEN, width=2, dash="dot")))
+    if daily["sold_mwh"].notna().any():
+        daily_figure.add_trace(go.Scatter(x=daily["delivery_date"], y=daily["sold_mwh"], name="Факт продажу", mode="lines+markers", line=dict(color=GPU_PURPLE, width=3)))
     daily_figure.update_layout(**_chart_layout(360, "МВт·год за добу"))
     daily_figure.update_xaxes(title="Дата")
     st.plotly_chart(daily_figure, width="stretch")
-    st.markdown(f"#### Погодинний профіль силового споживання · {profile_date:%d.%m.%Y}")
+    st.markdown(f"#### Погодинний баланс купівлі, споживання та продажу · {profile_date:%d.%m.%Y}")
     hourly_figure = go.Figure()
     for column, label, color in (
+        ("planned_purchase_mwh", "План купівлі", MUTED),
+        ("purchased_mwh", "Факт купівлі", AMBER),
         ("power_consumption_mwh", "Силове споживання", BLUE),
-        ("grid_export_mwh", "Віддача в мережу", MUTED),
+        ("planned_sale_mwh", "План продажу", COST_GREEN),
+        ("sold_mwh", "Факт продажу", GPU_PURPLE),
     ):
-        hourly_figure.add_trace(go.Scatter(x=selected["hour"], y=selected[column], name=label, mode="lines+markers", line=dict(color=color, width=2)))
+        if selected[column].notna().any():
+            hourly_figure.add_trace(go.Scatter(
+                x=selected["hour"], y=selected[column], name=label, mode="lines+markers",
+                connectgaps=False,
+                line=dict(color=color, width=3 if "Факт" in label or "споживання" in label else 2,
+                          dash="dot" if "План" in label else "solid"),
+            ))
     hourly_figure.update_layout(**_chart_layout(360, "МВт·год за годину"))
-    hourly_figure.update_xaxes(title="Година", dtick=2)
+    hourly_figure.update_xaxes(title="Година", dtick=2, range=[0, 23])
+    st.caption("Пунктир — план; суцільна лінія — факт. Відсутні значення залишаються пропусками, а не нулями.")
     st.plotly_chart(hourly_figure, width="stretch")
     st.markdown("#### Погодинні небаланси")
     imbalance_figure = go.Figure(go.Bar(

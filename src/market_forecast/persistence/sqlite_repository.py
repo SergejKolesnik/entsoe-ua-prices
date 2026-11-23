@@ -149,6 +149,9 @@ class SQLiteMarketRepository:
                     technology_consumption_mwh TEXT,
                     power_consumption_mwh TEXT,
                     imbalance_mwh TEXT,
+                    planned_sale_mwh TEXT,
+                    sold_mwh TEXT,
+                    sale_imbalance_mwh TEXT,
                     source_sheet TEXT NOT NULL,
                     imported_at_utc TEXT NOT NULL
                 );
@@ -281,6 +284,10 @@ class SQLiteMarketRepository:
             columns = {row[1] for row in connection.execute("PRAGMA table_info(gas_monthly_history)")}
             if "commodity_price_excluding_vat" not in columns:
                 connection.execute("ALTER TABLE gas_monthly_history ADD COLUMN commodity_price_excluding_vat TEXT")
+            profile_columns = {row[1] for row in connection.execute("PRAGMA table_info(power_profile_observations)")}
+            for column in ("planned_sale_mwh", "sold_mwh", "sale_imbalance_mwh"):
+                if column not in profile_columns:
+                    connection.execute(f"ALTER TABLE power_profile_observations ADD COLUMN {column} TEXT")
 
     def store_gas_history(
         self, months: Iterable[GasHistoryMonth], source_url: str, source_sheet: str,
@@ -605,8 +612,9 @@ class SQLiteMarketRepository:
                            delivery_start_local, delivery_date, hour,
                            planned_purchase_mwh, purchased_mwh, gpu_mwh, ses_mwh,
                            grid_export_mwh, technology_consumption_mwh,
-                           power_consumption_mwh, imbalance_mwh, source_sheet, imported_at_utc
-                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                           power_consumption_mwh, imbalance_mwh, planned_sale_mwh, sold_mwh,
+                           sale_imbalance_mwh, source_sheet, imported_at_utc
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                        ON CONFLICT(delivery_start_local) DO UPDATE SET
                            planned_purchase_mwh = excluded.planned_purchase_mwh,
                            purchased_mwh = excluded.purchased_mwh,
@@ -616,6 +624,9 @@ class SQLiteMarketRepository:
                            technology_consumption_mwh = excluded.technology_consumption_mwh,
                            power_consumption_mwh = excluded.power_consumption_mwh,
                            imbalance_mwh = excluded.imbalance_mwh,
+                           planned_sale_mwh = excluded.planned_sale_mwh,
+                           sold_mwh = excluded.sold_mwh,
+                           sale_imbalance_mwh = excluded.sale_imbalance_mwh,
                            source_sheet = excluded.source_sheet,
                            imported_at_utc = excluded.imported_at_utc""",
                     (delivery_start, item.delivery_date.isoformat(), item.hour,
@@ -623,7 +634,8 @@ class SQLiteMarketRepository:
                          item.planned_purchase_mwh, item.purchased_mwh, item.gpu_mwh,
                          item.ses_mwh, item.grid_export_mwh,
                          item.technology_consumption_mwh, item.power_consumption_mwh,
-                         item.imbalance_mwh)), item.source_sheet, imported_at),
+                         item.imbalance_mwh, item.planned_sale_mwh, item.sold_mwh,
+                         item.sale_imbalance_mwh)), item.source_sheet, imported_at),
                 )
         return len(rows)
 
@@ -635,7 +647,8 @@ class SQLiteMarketRepository:
         self.initialize()
         query = """SELECT delivery_date, hour, planned_purchase_mwh, purchased_mwh,
                           gpu_mwh, ses_mwh, grid_export_mwh, technology_consumption_mwh,
-                          power_consumption_mwh, imbalance_mwh, source_sheet, imported_at_utc
+                          power_consumption_mwh, imbalance_mwh, planned_sale_mwh, sold_mwh,
+                          sale_imbalance_mwh, source_sheet, imported_at_utc
                    FROM power_profile_observations WHERE 1 = 1"""
         parameters: list[str] = []
         if date_from is not None:
@@ -649,8 +662,8 @@ class SQLiteMarketRepository:
             rows = connection.execute(query, parameters).fetchall()
         return [(
             date.fromisoformat(row[0]), row[1],
-            *(Decimal(value) if value is not None else None for value in row[2:10]),
-            row[10], _parse_utc(row[11])
+            *(Decimal(value) if value is not None else None for value in row[2:13]),
+            row[13], _parse_utc(row[14])
         ) for row in rows]
 
     def store_collection(
